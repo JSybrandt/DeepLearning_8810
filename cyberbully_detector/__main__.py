@@ -1,3 +1,7 @@
+from .bully_pb2 import TrainingConfig
+from .train import train_main
+from .proto_util import PROTO_PARSERS
+
 from argparse import ArgumentParser
 from pathlib import Path
 import logging as log
@@ -17,11 +21,12 @@ def is_safe_to_write_file(path, overwritable=False):
 def is_safe_to_read(path):
   return path.is_file()
 
-
+################################################################################
 
 def parse_args():
   checks = []
 
+  ## Configure parser options ##################################################
   root_parser = ArgumentParser(description="JSybrandt's submission for 8810.")
 
   # Configure command sub-parsers
@@ -37,17 +42,10 @@ def parse_args():
   root_parser.set_defaults(command="root")
   train_parser.set_defaults(command="train")
   eval_parser.set_defaults(command="eval")
-  checks.append(ArgumentCheck(
-    command="all",
-    param_name="command",
-    assert_fn=lambda a: a.command != "root",
-    err_msg="Must supply command"
-  ))
 
-  ### ROOT ARGS ###
+  ## Root Arguments - Common for all commands ##################################
   root_parser.add_argument("-v", "--verbose", action="store_true")
   root_parser.add_argument("--debug", action="store_true")
-  # No check needed
 
   root_parser.add_argument("-l", "--log_path", type=Path)
   checks.append(ArgumentCheck(
@@ -58,40 +56,44 @@ def parse_args():
     err_msg="Must file path must be writable."
   ))
 
-  ### TRAIN ARGS ###
-  train_parser.add_argument("data", type=Path)
+  ## Training Arguments ########################################################
+
+  train_parser.add_argument("config", type=Path)
   checks.append(ArgumentCheck(
     command="train",
-    param_name="data",
-    assert_fn=lambda a: a.data.is_dir(),
-    err_msg="Must supply existing directory."
+    param_name="config",
+    assert_fn=lambda a: a.config.is_file() and a.config.suffix in PROTO_PARSERS,
+    err_msg="Config must exist and be one of these extensions: " \
+            + ", ".join(PROTO_PARSERS)
   ))
 
   train_parser.add_argument("model_path", type=Path)
   checks.append(ArgumentCheck(
     command="train",
-    param_name="data",
+    param_name="model_path",
     assert_fn=lambda a: (a.model_path.suffix == ".h5" \
                          and is_safe_to_write_file(a.model_path)),
     err_msg="Must supply writable .h5 file."
   ))
 
-  ### EVAL ARGS ###
+  ## Evaluation / Testing Arguments ############################################
   #TODO(JSybran)
 
   args = root_parser.parse_args()
-  print(args)
 
+  has_error = False
   for check in checks:
     if check.command in [args.command, "all"] \
         and not check.assert_fn(args):
-      print("Error in parameter:",
+      print(">> Parameter Error:",
             check.param_name,
             "=",
             getattr(args, check.param_name),
             file=sys.stderr)
-      print(">>>", check.err_msg, file=sys.stderr)
-      exit(1)
+      print("--", check.err_msg, file=sys.stderr)
+      has_error = True
+  if has_error:
+    exit(1)
 
   return args
 
@@ -118,9 +120,16 @@ def config_logger(args):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-
 if __name__ == "__main__":
   args = parse_args()
   config_logger(args)
   logger = log.getLogger()
   logger.info("START %s", str(args))
+
+  if args.command == "train":
+    exit(train_main(args))
+  if args.command == "eval":
+    logger.error("Eval not implemented.")
+    exit(1)
+  logger.error("Invalid command")
+  exit(1)

@@ -21,6 +21,10 @@ and use -h to get help!
 
 # Prereqs
 
+This is a python3 application.
 You must have the h5py module in order to save/load a keras model.
 ```sudo apt-get install libhdf5-serial-dev```
 
+# Testing
+
+Just run `pytest` and tests will be discovered from the test directory

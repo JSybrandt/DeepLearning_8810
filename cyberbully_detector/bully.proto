@@ -1,0 +1,15 @@
+syntax = "proto2";
+
+package cyberbully_detector;
+
+message TrainingConfig {
+  message TrainingExample {
+    optional string img_path = 1;
+    optional string label = 2;
+  }
+  repeated TrainingExample examples = 1;
+
+  // WRITTEN BY MODULE
+  map<string, int32> label_map=2;
+}
+
