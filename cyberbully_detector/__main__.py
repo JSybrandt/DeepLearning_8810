@@ -58,21 +58,39 @@ def parse_args():
 
   ## Training Arguments ########################################################
 
-  train_parser.add_argument("config", type=Path)
+  train_parser.add_argument("--config", type=Path)
   checks.append(ArgumentCheck(
     command="train",
     param_name="config",
-    assert_fn=lambda a: a.config.is_file() and a.config.suffix in PROTO_PARSERS,
+    assert_fn=lambda a: (\
+        a.config is None or (\
+          a.config.is_file() and \
+          a.config.suffix in PROTO_PARSERS)),
     err_msg="Config must exist and be one of these extensions: " \
             + ", ".join(PROTO_PARSERS)
   ))
 
-  train_parser.add_argument("model_path", type=Path)
+  train_parser.add_argument("data_dir",
+                            type=Path,
+                            nargs="?",
+                            default=Path("./data/train"))
+  checks.append(ArgumentCheck(
+    command="train",
+    param_name="data_dir",
+    assert_fn=lambda a: a.data_dir.is_dir(),
+    err_msg="Must supply a directory."
+  ))
+
+  train_parser.add_argument("model_path",
+                            type=Path,
+                            nargs="?",
+                            default=Path("model.h5"))
   checks.append(ArgumentCheck(
     command="train",
     param_name="model_path",
-    assert_fn=lambda a: (a.model_path.suffix == ".h5" \
-                         and is_safe_to_write_file(a.model_path)),
+    assert_fn=lambda a: (\
+          a.model_path.suffix == ".h5" and \
+          is_safe_to_write_file(a.model_path)),
     err_msg="Must supply writable .h5 file."
   ))
 
