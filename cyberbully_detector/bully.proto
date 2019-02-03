@@ -32,11 +32,13 @@ message TrainingConfig {
   optional DataGenConfig datagen = 2;
   optional int32 batch_size = 3 [default = 100];
   // Default is intended to make testing easier
-  optional int32 num_epoch = 4 [default = 5];
+  optional int32 epochs = 4 [default = 5];
   optional bool shuffle_input = 5 [default = true];
   optional ColorMode color_mode = 6 [default = RGB];
   optional string vis_result_dir = 7;
   optional int32 seed = 8;
+  optional int32 steps_per_epoch = 9 [default = 2000];
+  optional int32 validation_steps = 10 [default = 800];
 
 }
 

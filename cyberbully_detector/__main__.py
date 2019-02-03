@@ -70,14 +70,25 @@ def parse_args():
             + ", ".join(PROTO_PARSERS)
   ))
 
-  train_parser.add_argument("data_dir",
+  train_parser.add_argument("train_data_dir",
                             type=Path,
                             nargs="?",
                             default=Path("./data/train"))
   checks.append(ArgumentCheck(
     command="train",
-    param_name="data_dir",
-    assert_fn=lambda a: a.data_dir.is_dir(),
+    param_name="train_data_dir",
+    assert_fn=lambda a: a.train_data_dir.is_dir(),
+    err_msg="Must supply a directory."
+  ))
+
+  train_parser.add_argument("val_data_dir",
+                            type=Path,
+                            nargs="?",
+                            default=Path("./data/validation"))
+  checks.append(ArgumentCheck(
+    command="train",
+    param_name="val_data_dir",
+    assert_fn=lambda a: a.val_data_dir.is_dir(),
     err_msg="Must supply a directory."
   ))
 
