@@ -1,7 +1,6 @@
-from .bully_pb2 import TrainingConfig
 from .train import train_main
+from .test import test_main
 from .proto_util import PROTO_PARSERS
-
 from argparse import ArgumentParser
 from pathlib import Path
 import logging as log
@@ -18,9 +17,6 @@ def is_safe_to_write_file(path, overwritable=False):
     return overwritable
   return not path.exists() and path.parent.is_dir()
 
-def is_safe_to_read(path):
-  return path.is_file()
-
 ################################################################################
 
 def parse_args():
@@ -29,23 +25,33 @@ def parse_args():
   ## Configure parser options ##################################################
   root_parser = ArgumentParser(description="JSybrandt's submission for 8810.")
 
-  # Configure command sub-parsers
-  subparsers = root_parser.add_subparsers()
-  train_parser = subparsers.add_parser(
-      "train",
-      description="Train and save a model")
-  eval_parser = subparsers.add_parser(
-      "eval",
-      description="Evaluate an existing model")
-
-  # command default lets me know what command was run
-  root_parser.set_defaults(command="root")
-  train_parser.set_defaults(command="train")
-  eval_parser.set_defaults(command="eval")
-
   ## Root Arguments - Common for all commands ##################################
+  root_parser.add_argument("model",
+                           type=Path,
+                           help="Path of *.h5 to save/load model")
+  checks.append(ArgumentCheck(
+    command="all",
+    param_name="model",
+    assert_fn=lambda a: (is_safe_to_write_file(a.model, True)
+                         and a.model.suffix == ".h5"),
+    err_msg="File path must be writable *.h5."
+  ))
+
   root_parser.add_argument("-v", "--verbose", action="store_true")
+
   root_parser.add_argument("--debug", action="store_true")
+
+  root_parser.add_argument("-d",
+                           "--data_root",
+                           type=Path,
+                           default="./data",
+                           help="Base directory for training data.")
+  checks.append(ArgumentCheck(
+    command="all",
+    param_name="data_root",
+    assert_fn=lambda a: a.data_root.is_dir(),
+    err_msg="Directory not found."
+  ))
 
   root_parser.add_argument("-l", "--log_path", type=Path)
   checks.append(ArgumentCheck(
@@ -53,14 +59,12 @@ def parse_args():
     param_name="log_path",
     assert_fn=lambda a: (a.log_path is None \
                          or is_safe_to_write_file(a.log_path, True)),
-    err_msg="Must file path must be writable."
+    err_msg="File path must be writable."
   ))
 
-  ## Training Arguments ########################################################
-
-  train_parser.add_argument("--config", type=Path)
+  root_parser.add_argument("--config", type=Path)
   checks.append(ArgumentCheck(
-    command="train",
+    command="all",
     param_name="config",
     assert_fn=lambda a: (\
         a.config is None or (\
@@ -70,43 +74,58 @@ def parse_args():
             + ", ".join(PROTO_PARSERS)
   ))
 
+  # Configure command sub-parsers
+  subparsers = root_parser.add_subparsers()
+  train_parser = subparsers.add_parser(
+      "train",
+      description="Train and save a model")
+  test_parser = subparsers.add_parser(
+      "test",
+      description="Evaluate an existing model")
+
+  # command default lets me know what command was run
+  root_parser.set_defaults(command="root")
+  train_parser.set_defaults(command="train")
+  test_parser.set_defaults(command="test")
+
+  ## Training Arguments ########################################################
+
   train_parser.add_argument("train_data_dir",
-                            type=Path,
+                            type=str,
                             nargs="?",
-                            default=Path("./data/train"))
+                            default="train",
+                            help="Path relative to data_root")
   checks.append(ArgumentCheck(
     command="train",
     param_name="train_data_dir",
-    assert_fn=lambda a: a.train_data_dir.is_dir(),
-    err_msg="Must supply a directory."
+    assert_fn=lambda a: a.data_root.joinpath(a.train_data_dir).is_dir(),
+    err_msg="Cannot find directory relative to data_root"
   ))
 
   train_parser.add_argument("val_data_dir",
-                            type=Path,
+                            type=str,
                             nargs="?",
-                            default=Path("./data/validation"))
+                            default="validation",
+                            help="Path relative to data_root")
   checks.append(ArgumentCheck(
     command="train",
     param_name="val_data_dir",
-    assert_fn=lambda a: a.val_data_dir.is_dir(),
-    err_msg="Must supply a directory."
-  ))
-
-  train_parser.add_argument("model_path",
-                            type=Path,
-                            nargs="?",
-                            default=Path("model.h5"))
-  checks.append(ArgumentCheck(
-    command="train",
-    param_name="model_path",
-    assert_fn=lambda a: (\
-          a.model_path.suffix == ".h5" and \
-          is_safe_to_write_file(a.model_path)),
-    err_msg="Must supply writable .h5 file."
+    assert_fn=lambda a: a.data_root.joinpath(a.val_data_dir).is_dir(),
+    err_msg="Cannot find directory relative to data_root"
   ))
 
   ## Evaluation / Testing Arguments ############################################
-  #TODO(JSybran)
+  test_parser.add_argument("test_data_dir",
+                            type=str,
+                            nargs="?",
+                            default="test",
+                            help="Path relative to data_root")
+  checks.append(ArgumentCheck(
+    command="test",
+    param_name="test_data_dir",
+    assert_fn=lambda a: a.data_root.joinpath(a.test_data_dir).is_dir(),
+    err_msg="Cannot find directory relative to data_root"
+  ))
 
   args = root_parser.parse_args()
 
@@ -123,6 +142,13 @@ def parse_args():
       has_error = True
   if has_error:
     exit(1)
+
+  if hasattr(args, "train_data_dir"):
+    args.train_data_dir=args.data_root.joinpath(args.train_data_dir)
+  if hasattr(args, "val_data_dir"):
+    args.val_data_dir=args.data_root.joinpath(args.val_data_dir)
+  if hasattr(args, "test_data_dir"):
+    args.test_data_dir=args.data_root.joinpath(args.test_data_dir)
 
   return args
 
@@ -157,8 +183,7 @@ if __name__ == "__main__":
 
   if args.command == "train":
     exit(train_main(args))
-  if args.command == "eval":
-    logger.error("Eval not implemented.")
-    exit(1)
+  if args.command == "test":
+    exit(test_main(args))
   logger.error("Invalid command")
   exit(1)
