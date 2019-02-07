@@ -1,5 +1,5 @@
 from .train import train_main
-from .evaluate import test_main
+from .evaluate import evaluate_main
 from .proto_util import PROTO_PARSERS
 from argparse import ArgumentParser
 from pathlib import Path
@@ -115,15 +115,15 @@ def parse_args():
   ))
 
   ## Evaluation / Testing Arguments ############################################
-  test_parser.add_argument("eval_data_dir",
+  test_parser.add_argument("test_data_dir",
                             type=str,
                             nargs="?",
                             default="evaluate",
                             help="Path relative to data_root")
   checks.append(ArgumentCheck(
     command="evaluate",
-    param_name="eval_data_dir",
-    assert_fn=lambda a: a.data_root.joinpath(a.eval_data_dir).is_dir(),
+    param_name="test_data_dir",
+    assert_fn=lambda a: a.data_root.joinpath(a.test_data_dir).is_dir(),
     err_msg="Cannot find directory relative to data_root"
   ))
 
@@ -147,8 +147,8 @@ def parse_args():
     args.train_data_dir=args.data_root.joinpath(args.train_data_dir)
   if hasattr(args, "val_data_dir"):
     args.val_data_dir=args.data_root.joinpath(args.val_data_dir)
-  if hasattr(args, "eval_data_dir"):
-    args.eval_data_dir=args.data_root.joinpath(args.eval_data_dir)
+  if hasattr(args, "test_data_dir"):
+    args.test_data_dir=args.data_root.joinpath(args.test_data_dir)
 
   return args
 
@@ -184,6 +184,6 @@ if __name__ == "__main__":
   if args.command == "train":
     exit(train_main(args))
   if args.command == "evaluate":
-    exit(test_main(args))
+    exit(evaluate_main(args))
   logger.error("Invalid command")
   exit(1)

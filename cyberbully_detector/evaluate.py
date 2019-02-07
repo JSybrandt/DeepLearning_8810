@@ -1,10 +1,10 @@
-from tensorflow import keras
 import logging as log
-from .data_util import setup_data_generator
-from keras.models import load_model
+from .data_util import setup_eval_data_generator
+from .data_util import get_worker_count
 from .data_util import get_config
+from keras.models import load_model
 
-def test_main(args):
+def evaluate_main(args):
   # Entry point into eval from __main__.py
 
   config = get_config(args)
@@ -15,9 +15,15 @@ def test_main(args):
   log.info("Loading")
   model = load_model(str(args.model))
 
-  test_generator = setup_data_generator(args.test_data_dir, config)
+  test_generator = setup_eval_data_generator(args.test_data_dir, config)
 
-  predictions = model.predict_generator(test_generator)
+  num_eval_examples = len(test_generator.filenames)
+
+  predictions = model.evaluate_generator(
+      test_generator,
+      steps=num_eval_examples,
+      workers=get_worker_count(config),
+      )
 
   print(predictions)
 

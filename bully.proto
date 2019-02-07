@@ -49,14 +49,24 @@ message ModelDescription {
 
 message Config {
 
+  message SystemConfig {
+    optional int32 gpus = 1;
+    // Number of data generators to use.
+    // Positive numbers are the count
+    // Negative numbers subtract from CPU count
+    // Zero executes worker on main thread
+    // Default generates n-1 new threads (to leave room for main)
+    optional int32 workers = 2 [default=-1];
+  }
+
   message DataGenConfig {
-    optional bool horizontal_flip = 2 [default = true];
-    optional bool vertical_flip = 3 [default = true];
-    optional float shear_range = 4 [default = 0.2];
-    optional float zoom_range = 5 [default = 0.2];
-    optional float width_shift_range = 6 [default = 0.1];
-    optional float height_shift_range = 7 [default = 0.1];
-    optional float rotation_range = 8 [default = 10];
+    optional bool horizontal_flip = 2 [default = false];
+    optional bool vertical_flip = 3 [default = false];
+    optional float shear_range = 4 [default = 0];
+    optional float zoom_range = 5 [default = 0];
+    optional float width_shift_range = 6 [default = 0];
+    optional float height_shift_range = 7 [default = 0];
+    optional float rotation_range = 8 [default = 0];
     // between 0 - 1
     optional float validation_split = 9 [default=0];
   }
@@ -72,10 +82,9 @@ message Config {
   optional ColorMode color_mode = 6 [default = RGB];
   optional string vis_result_dir = 7;
   optional int32 seed = 8;
-  optional int32 steps_per_epoch = 9 [default = 2000];
-  optional int32 validation_steps = 10 [default = 800];
+  optional int32 steps_per_epoch = 9 [default = 100];
+  optional int32 validation_steps = 10 [default = 100];
   optional ModelDescription model = 11;
   optional string class_mode = 12 [default="categorical"];
-  // if not set, no gpu
-  optional int32 gpus = 13;
+  optional SystemConfig system = 13;
 }
