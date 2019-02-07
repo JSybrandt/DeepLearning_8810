@@ -1,8 +1,0 @@
-{
-  "examples": [
-    { "img_path": "data/gossiping0001.jpg",
-      "label": "gossip" },
-    { "img_path": "data/stabbing0001.jpg",
-      "label": "stabbing" }
-  ]
-}
