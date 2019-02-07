@@ -110,3 +110,5 @@ data/
 
 # gen files
 *_pb2.py
+# model files
+*.h5

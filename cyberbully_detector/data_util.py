@@ -1,3 +1,4 @@
+from tensorflow import keras
 from .bully_pb2 import GRAYSCALE, RGBA, RGB, RBG
 from .bully_pb2 import Config
 from .proto_util import PROTO_PARSERS
@@ -38,7 +39,7 @@ def setup_data_generator(data_path, config):
       target_size=(config.target_size.width,
                    config.target_size.height),
       batch_size=config.batch_size,
-      class_mode="categorical",
+      class_mode=config.class_mode,
       color_mode=colormode_to_str(config.color_mode),
       shuffle=config.shuffle_input,
       save_to_dir=get_or_none(config, "vis_result_dir"),
