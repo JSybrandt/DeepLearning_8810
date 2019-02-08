@@ -16,6 +16,9 @@ from keras.layers import MaxPooling2D
 from keras.layers import Flatten
 from keras.layers import Dropout
 from keras.utils import multi_gpu_model
+from keras.callbacks import TerminateOnNaN
+from keras.callbacks import EarlyStopping
+from keras.callbacks import ModelCheckpoint
 
 def add_convolutional(conv_config, last_layer):
   name=get_or_none(conv_config, "name")
@@ -92,20 +95,27 @@ def train_main(args):
     model = multi_gpu_model(model, gpus=config.system.gpus)
 
   model.compile(optimizer=config.model.optimizer,
-                loss=config.model.loss)
+                loss=config.model.loss,
+                )
 
   log.info(model.summary())
 
+  num_val_examples = len(val_generator.filenames)
 
   model.fit_generator(
       train_generator,
       epochs=config.epochs,
       steps_per_epoch=config.steps_per_epoch,
       validation_data=val_generator,
-      validation_steps=config.validation_steps,
+      validation_steps=num_val_examples,
       workers=get_worker_count(config),
+      callbacks = [
+        EarlyStopping(),
+        TerminateOnNaN(),
+        ModelCheckpoint(str(args.model), save_best_only=True)
+        ]
       )
 
   log.info("Saving model architecture and weights to %s", args.model)
-  model.save(str(args.model))
+  #model.save(str(args.model))
   return 0 # Exit Code

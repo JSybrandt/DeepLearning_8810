@@ -83,8 +83,7 @@ message Config {
   optional string vis_result_dir = 7;
   optional int32 seed = 8;
   optional int32 steps_per_epoch = 9 [default = 100];
-  optional int32 validation_steps = 10 [default = 100];
-  optional ModelDescription model = 11;
-  optional string class_mode = 12 [default="categorical"];
-  optional SystemConfig system = 13;
+  optional ModelDescription model = 10;
+  optional string class_mode = 11 [default="categorical"];
+  optional SystemConfig system = 12;
 }
