@@ -19,6 +19,8 @@ from keras.utils import multi_gpu_model
 from keras.callbacks import TerminateOnNaN
 from keras.callbacks import EarlyStopping
 from keras.callbacks import ModelCheckpoint
+from keras.callbacks import TensorBoard
+from keras.optimizers import SGD
 
 def add_convolutional(conv_config, last_layer):
   name=get_or_none(conv_config, "name")
@@ -70,16 +72,27 @@ def initialize_model(config, num_classes):
   return model
 
 
+def initialize_optimizer(config):
+  opt_conf = config.model.optimizer
+  if opt_conf.HasField("default_string"):
+    return opt_conf.default_string
+  elif opt_conf.HasField("sgd"):
+    return SGD(lr=opt_conf.sgd.learning_rate,
+               momentum=opt_conf.sgd.momentum,
+               decay=opt_conf.sgd.decay,
+               nesterov=opt_conf.sgd.nesterov)
+  else:
+    raise ValueError("Must supply optimizer.")
+
+
 def train_main(args):
   # Entry point into training from __main__.py
 
   config = get_config(args)
 
-  log.info(config)
+  train_generator, val_generator = setup_training_data_generator(args.data, config)
 
-  generator = setup_training_data_generator(args.data, config)
-
-  num_classes = len(generator.class_indices)
+  num_classes = len(train_generator.class_indices)
 
   if args.model.is_file():
     log.info("Loading model to continue training from %s", args.model)
@@ -92,22 +105,26 @@ def train_main(args):
     log.info("Configuring for %s gpus", config.system.gpus)
     model = multi_gpu_model(model, gpus=config.system.gpus)
 
-  model.compile(optimizer=config.model.optimizer,
+  optimizer = initialize_optimizer(config)
+
+  model.compile(optimizer=optimizer,
                 loss=config.model.loss,
                 metrics=config.model.metrics)
 
   log.info(model.summary())
 
   model.fit_generator(
-      generator,
+      train_generator,
       epochs=config.epochs,
       steps_per_epoch=config.steps_per_epoch,
+      validation_data=val_generator,
       validation_steps=config.validation_steps,
       workers=get_worker_count(config),
       callbacks = [
         EarlyStopping(),
         TerminateOnNaN(),
-        ModelCheckpoint(str(args.model), save_best_only=True)
+        ModelCheckpoint(str(args.model), save_best_only=True),
+        TensorBoard(update_freq="batch")
         ]
       )
 

@@ -25,27 +25,28 @@ def colormode_to_dim(color_mode):
   return modes[color_mode]
 
 def setup_training_data_generator(data_path, config):
-  return ImageDataGenerator(
-      horizontal_flip=config.datagen.horizontal_flip,
-      vertical_flip=config.datagen.vertical_flip,
-      shear_range=config.datagen.shear_range,
-      zoom_range=config.datagen.zoom_range,
-      width_shift_range=config.datagen.width_shift_range,
-      height_shift_range=config.datagen.height_shift_range,
-      rotation_range=config.datagen.rotation_range,
-      validation_split=config.validation_split,
-  ).flow_from_directory(
-      data_path,
-      target_size=(config.target_size.width,
-                   config.target_size.height),
-      batch_size=config.batch_size,
-      class_mode=config.class_mode,
-      color_mode=colormode_to_str(config.color_mode),
-      shuffle=config.shuffle_input,
-      save_to_dir=get_or_none(config, "vis_result_dir"),
-      seed=get_or_none(config, "seed"),
-      follow_links=True
-  )
+  gen = ImageDataGenerator(
+      horizontal_flip=config.generator.horizontal_flip,
+      vertical_flip=config.generator.vertical_flip,
+      shear_range=config.generator.shear_range,
+      zoom_range=config.generator.zoom_range,
+      width_shift_range=config.generator.width_shift_range,
+      height_shift_range=config.generator.height_shift_range,
+      rotation_range=config.generator.rotation_range,
+      validation_split=config.validation_split)
+  return [ gen.flow_from_directory(
+             data_path,
+             target_size=(config.target_size.width,
+                          config.target_size.height),
+             batch_size=config.batch_size,
+             class_mode=config.class_mode,
+             color_mode=colormode_to_str(config.color_mode),
+             shuffle=config.shuffle_input,
+             save_to_dir=get_or_none(config, "vis_result_dir"),
+             seed=get_or_none(config, "seed"),
+             follow_links=True,
+             subset=subset)
+           for subset in ["training", "validation"] ]
 
 def setup_eval_data_generator(data_path, config):
   return ImageDataGenerator(

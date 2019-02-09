@@ -14,6 +14,23 @@ enum ColorMode {
   RGB                          = 4;
 }
 
+message OptimizerConfig {
+  message DefaultString {
+    optional string name = 1;
+  }
+  message SGD {
+    optional float learning_rate = 1 [default = 0.01];
+    optional float momentum      = 2 [default = 0];
+    optional float decay         = 3 [default = 0];
+    optional bool nesterov       = 4 [default = false];
+  }
+
+  oneof optimizer {
+    DefaultString default_string = 1;
+    SGD sgd                      = 2;
+  }
+}
+
 message ModelDescription {
   message ConvLayer {
     optional int32 filters     = 1 [default = 128];
@@ -42,10 +59,10 @@ message ModelDescription {
       DropoutLayer dropout     = 4;
     }
   }
-  repeated Layer layers        = 1;
-  optional string optimizer    = 2 [default = "sgd"];
-  optional string loss         = 3 [default = "categorical_crossentropy"];
-  repeated string metrics      = 4;
+  repeated Layer layers              = 1;
+  optional OptimizerConfig optimizer = 2;
+  optional string loss               = 3 [default = "categorical_crossentropy"];
+  repeated string metrics            = 4;
 }
 
 message SystemConfig {
@@ -58,7 +75,7 @@ message SystemConfig {
   optional int32 gpus          = 2;
 }
 
-message GeneratorDescription {
+message GeneratorConfig {
   // Defaults provide no data augmentation
   optional bool horizontal_flip         = 2  [default = false];
   optional bool vertical_flip           = 3  [default = false];
@@ -72,7 +89,7 @@ message GeneratorDescription {
 message Config {
   // Values for input data and augmentation
   optional Size target_size             = 1;
-  optional GeneratorDescription datagen = 2;
+  optional GeneratorConfig generator    = 2;
   optional string vis_result_dir        = 3;
   optional ColorMode color_mode         = 4  [default = RGB];
   optional bool shuffle_input           = 5  [default = true];

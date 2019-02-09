@@ -112,3 +112,5 @@ data/
 *_pb2.py
 # model files
 *.h5
+# tensorboard logs
+logs/
