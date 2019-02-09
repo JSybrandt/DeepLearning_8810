@@ -77,11 +77,9 @@ def train_main(args):
 
   log.info(config)
 
-  train_generator = setup_training_data_generator(args.train_data_dir, config)
-  val_generator = setup_eval_data_generator(args.val_data_dir, config)
+  generator = setup_training_data_generator(args.data, config)
 
-  assert train_generator.class_indices == val_generator.class_indices
-  num_classes = len(train_generator.class_indices)
+  num_classes = len(generator.class_indices)
 
   if args.model.is_file():
     log.info("Loading model to continue training from %s", args.model)
@@ -96,18 +94,15 @@ def train_main(args):
 
   model.compile(optimizer=config.model.optimizer,
                 loss=config.model.loss,
-                )
+                metrics=config.model.metrics)
 
   log.info(model.summary())
 
-  num_val_examples = len(val_generator.filenames)
-
   model.fit_generator(
-      train_generator,
+      generator,
       epochs=config.epochs,
       steps_per_epoch=config.steps_per_epoch,
-      validation_data=val_generator,
-      validation_steps=num_val_examples,
+      validation_steps=config.validation_steps,
       workers=get_worker_count(config),
       callbacks = [
         EarlyStopping(),

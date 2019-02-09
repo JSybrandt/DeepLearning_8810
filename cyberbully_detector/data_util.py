@@ -33,7 +33,7 @@ def setup_training_data_generator(data_path, config):
       width_shift_range=config.datagen.width_shift_range,
       height_shift_range=config.datagen.height_shift_range,
       rotation_range=config.datagen.rotation_range,
-      validation_split=config.datagen.validation_split,
+      validation_split=config.validation_split,
   ).flow_from_directory(
       data_path,
       target_size=(config.target_size.width,
@@ -53,10 +53,10 @@ def setup_eval_data_generator(data_path, config):
       data_path,
       target_size=(config.target_size.width,
                    config.target_size.height),
-      batch_size=config.batch_size,
+      batch_size=1,
       class_mode=config.class_mode,
       color_mode=colormode_to_str(config.color_mode),
-      shuffle=config.shuffle_input,
+      shuffle=False,
       seed=get_or_none(config, "seed"),
       follow_links=True
   )

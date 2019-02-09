@@ -3,87 +3,90 @@ syntax = "proto2";
 package cyberbully_detector;
 
 message Size {
-  optional int32 width = 1;
-  optional int32 height = 2;
+  optional int32 width         = 1;
+  optional int32 height        = 2;
 }
 
 enum ColorMode {
-  GRAYSCALE = 1;
-  RBG = 2;
-  RGBA = 3;
-  RGB = 4;
+  GRAYSCALE                    = 1;
+  RBG                          = 2;
+  RGBA                         = 3;
+  RGB                          = 4;
 }
 
 message ModelDescription {
   message ConvLayer {
-    optional int32 filters = 1 [default = 128];
-    optional Size kernel_size = 2;
-    optional Size pool_size = 3;
-    optional string pool_type = 4 [default = "max"];
-    optional string name = 5;
+    optional int32 filters     = 1 [default = 128];
+    optional Size kernel_size  = 2;
+    optional Size pool_size    = 3;
+    optional string pool_type  = 4 [default = "max"];
+    optional string name       = 5;
   }
   message DenseLayer {
-    optional int32 units = 1;
+    optional int32 units       = 1;
     optional string activation = 2 [default = "relu"];
-    optional string name = 3;
+    optional string name       = 3;
   }
   message FlattenLayer {
-    optional string name = 1;
+    optional string name       = 1;
   }
   message DropoutLayer {
-    optional float rate = 1 [default = 0.5];
-    optional string name = 2;
+    optional float rate        = 1 [default = 0.5];
+    optional string name       = 2;
   }
   message Layer {
     oneof config {
-      ConvLayer convolutional = 1;
-      DenseLayer dense = 2;
-      FlattenLayer flatten = 3;
-      DropoutLayer dropout = 4;
+      ConvLayer convolutional  = 1;
+      DenseLayer dense         = 2;
+      FlattenLayer flatten     = 3;
+      DropoutLayer dropout     = 4;
     }
   }
-  repeated Layer layers = 1;
-  optional string optimizer = 2 [default = "sgd"];
-  optional string loss = 3 [default = "categorical_crossentropy"];
+  repeated Layer layers        = 1;
+  optional string optimizer    = 2 [default = "sgd"];
+  optional string loss         = 3 [default = "categorical_crossentropy"];
+  repeated string metrics      = 4;
+}
+
+message SystemConfig {
+  // Number of data generators to use.
+  // Positive numbers are the count
+  // Negative numbers subtract from CPU count
+  // Zero executes worker on main thread
+  // Default generates n-1 new threads (to leave room for main)
+  optional int32 workers       = 1 [default=-1];
+  optional int32 gpus          = 2;
+}
+
+message GeneratorDescription {
+  // Defaults provide no data augmentation
+  optional bool horizontal_flip         = 2  [default = false];
+  optional bool vertical_flip           = 3  [default = false];
+  optional float shear_range            = 4  [default = 0];
+  optional float zoom_range             = 5  [default = 0];
+  optional float width_shift_range      = 6  [default = 0];
+  optional float height_shift_range     = 7  [default = 0];
+  optional float rotation_range         = 8  [default = 0];
 }
 
 message Config {
+  // Values for input data and augmentation
+  optional Size target_size             = 1;
+  optional GeneratorDescription datagen = 2;
+  optional string vis_result_dir        = 3;
+  optional ColorMode color_mode         = 4  [default = RGB];
+  optional bool shuffle_input           = 5  [default = true];
 
-  message SystemConfig {
-    optional int32 gpus = 1;
-    // Number of data generators to use.
-    // Positive numbers are the count
-    // Negative numbers subtract from CPU count
-    // Zero executes worker on main thread
-    // Default generates n-1 new threads (to leave room for main)
-    optional int32 workers = 2 [default=-1];
-  }
+  // Model parameters
+  optional ModelDescription model       = 6;
+  optional string class_mode            = 7  [default = "categorical"];
+  optional int32 batch_size             = 8  [default = 1];
+  optional int32 epochs                 = 9  [default = 5];
+  optional int32 steps_per_epoch        = 10 [default = 100];
+  optional float validation_split       = 11 [default = 0];
+  optional int32 validation_steps       = 12;
 
-  message DataGenConfig {
-    optional bool horizontal_flip = 2 [default = false];
-    optional bool vertical_flip = 3 [default = false];
-    optional float shear_range = 4 [default = 0];
-    optional float zoom_range = 5 [default = 0];
-    optional float width_shift_range = 6 [default = 0];
-    optional float height_shift_range = 7 [default = 0];
-    optional float rotation_range = 8 [default = 0];
-    // between 0 - 1
-    optional float validation_split = 9 [default=0];
-  }
-
-
-  // if unset, we will use None
-  optional Size target_size = 1;
-  optional DataGenConfig datagen = 2;
-  optional int32 batch_size = 3 [default = 1];
-  // Default is intended to make testing easier
-  optional int32 epochs = 4 [default = 5];
-  optional bool shuffle_input = 5 [default = true];
-  optional ColorMode color_mode = 6 [default = RGB];
-  optional string vis_result_dir = 7;
-  optional int32 seed = 8;
-  optional int32 steps_per_epoch = 9 [default = 100];
-  optional ModelDescription model = 10;
-  optional string class_mode = 11 [default="categorical"];
-  optional SystemConfig system = 12;
+  // System config
+  optional SystemConfig system          = 14;
+  optional int32 seed                   = 15;
 }

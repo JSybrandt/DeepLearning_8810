@@ -1,5 +1,6 @@
 from .train import train_main
 from .evaluate import evaluate_main
+from .predict import predict_main
 from .proto_util import PROTO_PARSERS
 from argparse import ArgumentParser
 from pathlib import Path
@@ -26,6 +27,18 @@ def parse_args():
   root_parser = ArgumentParser(description="JSybrandt's submission for 8810.")
 
   ## Root Arguments - Common for all commands ##################################
+  root_parser.add_argument("config", type=Path)
+  checks.append(ArgumentCheck(
+    command="all",
+    param_name="config",
+    assert_fn=lambda a: (\
+        a.config is None or (\
+          a.config.is_file() and \
+          a.config.suffix in PROTO_PARSERS)),
+    err_msg="Config must exist and be one of these extensions: " \
+            + ", ".join(PROTO_PARSERS)
+  ))
+
   root_parser.add_argument("model",
                            type=Path,
                            help="Path of *.h5 to save/load model")
@@ -41,18 +54,6 @@ def parse_args():
 
   root_parser.add_argument("--debug", action="store_true")
 
-  root_parser.add_argument("-d",
-                           "--data_root",
-                           type=Path,
-                           default="./data",
-                           help="Base directory for training data.")
-  checks.append(ArgumentCheck(
-    command="all",
-    param_name="data_root",
-    assert_fn=lambda a: a.data_root.is_dir(),
-    err_msg="Directory not found."
-  ))
-
   root_parser.add_argument("-l", "--log_path", type=Path)
   checks.append(ArgumentCheck(
     command="all",
@@ -62,70 +63,37 @@ def parse_args():
     err_msg="File path must be writable."
   ))
 
-  root_parser.add_argument("--config", type=Path)
+  root_parser.add_argument("data",
+                            type=Path,
+                            help="Location of data. Subdir per class")
   checks.append(ArgumentCheck(
-    command="all",
-    param_name="config",
-    assert_fn=lambda a: (\
-        a.config is None or (\
-          a.config.is_file() and \
-          a.config.suffix in PROTO_PARSERS)),
-    err_msg="Config must exist and be one of these extensions: " \
-            + ", ".join(PROTO_PARSERS)
+    command="root",
+    param_name="data",
+    assert_fn=lambda a: a.train_data_dir.is_dir(),
+    err_msg="Cannot find directory"
   ))
 
   # Configure command sub-parsers
   subparsers = root_parser.add_subparsers()
   train_parser = subparsers.add_parser(
       "train",
-      description="Train and save a model")
-  test_parser = subparsers.add_parser(
+      description="Train and save a model.")
+  eval_parser = subparsers.add_parser(
       "evaluate",
-      description="Evaluate an existing model")
+      description="Load model, compare predictions against know classes.")
+  predict_parser = subparsers.add_parser(
+      "predict",
+      description="Load model, output predictions for unknown data.")
 
   # command default lets me know what command was run
   root_parser.set_defaults(command="root")
   train_parser.set_defaults(command="train")
-  test_parser.set_defaults(command="evaluate")
+  eval_parser.set_defaults(command="evaluate")
+  predict_parser.set_defaults(command="predict")
 
   ## Training Arguments ########################################################
-
-  train_parser.add_argument("train_data_dir",
-                            type=str,
-                            nargs="?",
-                            default="train",
-                            help="Path relative to data_root")
-  checks.append(ArgumentCheck(
-    command="train",
-    param_name="train_data_dir",
-    assert_fn=lambda a: a.data_root.joinpath(a.train_data_dir).is_dir(),
-    err_msg="Cannot find directory relative to data_root"
-  ))
-
-  train_parser.add_argument("val_data_dir",
-                            type=str,
-                            nargs="?",
-                            default="validation",
-                            help="Path relative to data_root")
-  checks.append(ArgumentCheck(
-    command="train",
-    param_name="val_data_dir",
-    assert_fn=lambda a: a.data_root.joinpath(a.val_data_dir).is_dir(),
-    err_msg="Cannot find directory relative to data_root"
-  ))
-
-  ## Evaluation / Testing Arguments ############################################
-  test_parser.add_argument("test_data_dir",
-                            type=str,
-                            nargs="?",
-                            default="evaluate",
-                            help="Path relative to data_root")
-  checks.append(ArgumentCheck(
-    command="evaluate",
-    param_name="test_data_dir",
-    assert_fn=lambda a: a.data_root.joinpath(a.test_data_dir).is_dir(),
-    err_msg="Cannot find directory relative to data_root"
-  ))
+  ## Evaluation / Arguments ###################################################
+  ## Prediction / Arguments ###################################################
 
   args = root_parser.parse_args()
 
@@ -142,13 +110,6 @@ def parse_args():
       has_error = True
   if has_error:
     exit(1)
-
-  if hasattr(args, "train_data_dir"):
-    args.train_data_dir=args.data_root.joinpath(args.train_data_dir)
-  if hasattr(args, "val_data_dir"):
-    args.val_data_dir=args.data_root.joinpath(args.val_data_dir)
-  if hasattr(args, "test_data_dir"):
-    args.test_data_dir=args.data_root.joinpath(args.test_data_dir)
 
   return args
 
@@ -185,5 +146,7 @@ if __name__ == "__main__":
     exit(train_main(args))
   if args.command == "evaluate":
     exit(evaluate_main(args))
+  if args.command == "predict":
+    exit(predict_main(args))
   logger.error("Invalid command")
   exit(1)
