@@ -37,27 +37,30 @@ message ModelDescription {
     optional Size kernel_size  = 2;
     optional Size pool_size    = 3;
     optional string pool_type  = 4 [default = "max"];
-    optional string name       = 5;
   }
   message DenseLayer {
     optional int32 units       = 1;
     optional string activation = 2 [default = "relu"];
-    optional string name       = 3;
   }
   message FlattenLayer {
-    optional string name       = 1;
   }
   message DropoutLayer {
     optional float rate        = 1 [default = 0.5];
-    optional string name       = 2;
   }
+  message TransferLayer {
+    optional string weights    = 2 [default = "imagenet"];
+    optional bool freeze       = 3 [default = true];
+  }
+
   message Layer {
     oneof config {
       ConvLayer convolutional  = 1;
       DenseLayer dense         = 2;
       FlattenLayer flatten     = 3;
       DropoutLayer dropout     = 4;
+      TransferLayer transfer   = 5;
     }
+    optional string name       = 100;
   }
   repeated Layer layers              = 1;
   optional OptimizerConfig optimizer = 2;

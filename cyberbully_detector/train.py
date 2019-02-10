@@ -20,55 +20,100 @@ from keras.callbacks import EarlyStopping
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import TensorBoard
 from keras.optimizers import SGD
+from keras import applications as kapps
 import numpy as np
 
-def add_convolutional(conv_config, last_layer):
+def add_convolutional(conv_config, current_layer):
   name=get_or_none(conv_config, "name")
-  last_layer = Conv2D(
+  current_layer = Conv2D(
       conv_config.filters,
       (conv_config.kernel_size.width, conv_config.kernel_size.height),
       name=name
-  )(last_layer)
+  )(current_layer)
 
   if name is not None:
     name += "_pool"
 
   if conv_config.pool_type == "max":
-    last_layer = MaxPooling2D(
+    current_layer = MaxPooling2D(
         (conv_config.pool_size.width, conv_config.pool_size.height),
         name=name
-    )(last_layer)
+    )(current_layer)
   else:
     raise ValueError("Unsupported pool type:" + conv_config.pool_type)
-  return last_layer
+  return current_layer
+
+def load_transfer_layers(layer_conf, current_layer):
+
+  if not layer_conf.HasField("name"):
+    raise ValueError("Transfer layer is required to have a name")
+
+  if layer_conf.name.lower() == "xception":
+    select_model = kapps.Xception
+  elif layer_conf.name.lower() == "vgg16":
+    select_model = kapps.VGG16
+  elif layer_conf.name.lower() == "vgg19":
+    select_model = kapps.VGG19
+  elif layer_conf.name.lower() == "resnet50":
+    select_model = kapps.ResNet50
+  elif layer_conf.name.lower() == "inceptionv3":
+    select_model = kapps.InceptionV3
+  elif layer_conf.name.lower() == "inceptionresnetv2":
+    select_model = kapps.InceptionResNetV2
+  elif layer_conf.name.lower() == "mobilenet":
+    select_model = kapps.MobileNet
+  elif layer_conf.name.lower() == "densenet":
+    select_model = kapps.DenseNet
+  elif layer_conf.name.lower() == "nasnet":
+    select_model = kapps.NASNet
+  elif layer_conf.name.lower() == "mobilenetv2":
+    select_model = kapps.MobileNetV2
+  else:
+    raise ValueError("Transfer layer contains invalid application name")
+
+  # include_top refers to the post-flatten features
+  transfer_model = select_model(include_top=False,
+                             weights=layer_conf.transfer.weights,
+                             input_tensor=current_layer)
+  if layer_conf.transfer.freeze:
+    for layer in transfer_model.layers:
+      layer.trainable = False
+  return transfer_model.output
+
 
 def initialize_model(config, num_classes):
-  # Variable sized input
-  input_layer = Input(
+
+  current_layer = input_layer = Input(
       (config.target_size.width,
        config.target_size.height,
        colormode_to_dim(config.color_mode)))
 
-  last_layer = input_layer
-
   # For each intermediate layer
-  for layer in config.model.layers:
-    if layer.HasField("convolutional"):
-      last_layer = add_convolutional(layer.convolutional, last_layer)
-    elif layer.HasField("dense"):
-      last_layer = Dense(layer.dense.units,
-                         activation=layer.dense.activation,
-                         name=get_or_none(layer.dense, "name")
-                        )(last_layer)
-    elif layer.HasField("flatten"):
-      last_layer = Flatten(name=get_or_none(layer.flatten, "name")
-                          )(last_layer)
-    elif layer.HasField("dropout"):
-      last_layer = Dropout(layer.dropout.rate,
-                           name=get_or_none(layer.dropout, "name")
-                          )(last_layer)
+  for count, layer_conf in enumerate(config.model.layers):
+    if layer_conf.HasField("convolutional"):
+      current_layer = add_convolutional(layer_conf.convolutional,
+                                        current_layer)
+    elif layer_conf.HasField("dense"):
+      current_layer = Dense(layer_conf.dense.units,
+                         activation=layer_conf.dense.activation,
+                         name=get_or_none(layer_conf, "name")
+                        )(current_layer)
+    elif layer_conf.HasField("flatten"):
+      current_layer = Flatten(name=get_or_none(layer_conf, "name")
+                          )(current_layer)
+    elif layer_conf.HasField("dropout"):
+      current_layer = Dropout(layer_conf.dropout.rate,
+                           name=get_or_none(layer_conf, "name")
+                          )(current_layer)
+    elif layer_conf.HasField("transfer"):
+      if count == 0:
+        current_layer = load_transfer_layers(layer_conf, current_layer)
+      else:
+        raise ValueError("Transfer layer must be first.")
+    else:
+      raise ValueError("Layer not supported.")
 
-  model = Model(input_layer, last_layer)
+  model = Model(input_layer, current_layer)
   return model
 
 
@@ -132,10 +177,10 @@ def train_main(args):
       workers=get_worker_count(config),
       class_weight=get_class_weights(config, train_generator),
       callbacks = [
-        EarlyStopping(),
+  #      EarlyStopping(),
         TerminateOnNaN(),
         ModelCheckpoint(str(args.model), save_best_only=True),
-        TensorBoard(update_freq="batch")
+  #      TensorBoard(update_freq="batch")
         ]
       )
 
