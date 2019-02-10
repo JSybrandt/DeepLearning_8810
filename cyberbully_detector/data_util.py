@@ -48,7 +48,7 @@ def setup_training_data_generator(data_path, config):
              subset=subset)
            for subset in ["training", "validation"] ]
 
-def setup_eval_data_generator(data_path, config):
+def setup_test_data_generator(data_path, config):
   return ImageDataGenerator(
   ).flow_from_directory(
       data_path,
@@ -83,3 +83,6 @@ def get_worker_count(config):
     raise ValueError("Config is asking for more workers than available")
   log.info("Using %s/%s workers", desired_cpu, total_cpus)
   return desired_cpu
+
+def class_name_map(generator):
+  return {i: c for c, i in generator.class_indices.items()}

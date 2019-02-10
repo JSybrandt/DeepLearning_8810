@@ -2,7 +2,6 @@ import logging as log
 from .data_util import colormode_to_str
 from .data_util import colormode_to_dim
 from .data_util import setup_training_data_generator
-from .data_util import setup_eval_data_generator
 from .data_util import get_worker_count
 from .data_util import get_config
 from .bully_pb2 import Config
@@ -21,6 +20,7 @@ from keras.callbacks import EarlyStopping
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import TensorBoard
 from keras.optimizers import SGD
+import numpy as np
 
 def add_convolutional(conv_config, last_layer):
   name=get_or_none(conv_config, "name")
@@ -84,6 +84,16 @@ def initialize_optimizer(config):
   else:
     raise ValueError("Must supply optimizer.")
 
+def get_class_weights(config, generator):
+  if not config.balance_class_weight:
+    return None
+  classes, counts = np.unique(generator.classes, return_counts=True)
+  max_count = max(counts)
+  weights = {c: max_count/count for c, count in zip(classes, counts)}
+  log.info("Using class weights")
+  log.info(weights)
+  return weights
+
 
 def train_main(args):
   # Entry point into training from __main__.py
@@ -120,6 +130,7 @@ def train_main(args):
       validation_data=val_generator,
       validation_steps=config.validation_steps,
       workers=get_worker_count(config),
+      class_weight=get_class_weights(config, train_generator),
       callbacks = [
         EarlyStopping(),
         TerminateOnNaN(),
@@ -128,6 +139,4 @@ def train_main(args):
         ]
       )
 
-  log.info("Saving model architecture and weights to %s", args.model)
-  #model.save(str(args.model))
   return 0 # Exit Code

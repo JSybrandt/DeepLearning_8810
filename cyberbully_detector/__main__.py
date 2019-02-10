@@ -7,6 +7,10 @@ from pathlib import Path
 import logging as log
 import sys
 from collections import namedtuple
+import os
+
+# disable tf logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # or any {'0', '1', '2'}
 
 ArgumentCheck = namedtuple("ArgumentCheck", ["command",
                                              "param_name",
@@ -122,8 +126,10 @@ def config_logger(args):
   # SET LEVEL
   if args.verbose:
     logger.setLevel(log.INFO)
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
   if args.debug:
     logger.setLevel(log.DEBUG)
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'
 
   # Log to StdErr
   handler = log.StreamHandler()
