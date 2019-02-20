@@ -6,6 +6,7 @@ from .data_util import get_worker_count
 from .data_util import get_config
 from .bully_pb2 import Config
 from .proto_util import get_or_none
+from .models import CUSTOM_MODELS
 from keras.models import Model
 from keras.models import load_model
 from keras.layers import Input
@@ -82,6 +83,11 @@ def load_transfer_layers(layer_conf, current_layer):
 
 
 def initialize_model(config, num_classes):
+  if config.HasField("custom_model"):
+    if config.custom_model in CUSTOM_MODELS:
+      return CUSTOM_MODELS[config.custom_model](config)
+    else:
+      raise ValueError("Custom model not supported:" + config.custom_model)
 
   current_layer = input_layer = Input(
       (config.target_size.width,

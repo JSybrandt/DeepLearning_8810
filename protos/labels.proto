@@ -1,0 +1,110 @@
+syntax = "proto2";
+
+package cyberbully_detector;
+
+import "common.proto";
+
+message Bbox {
+  // These are all pixel values
+  // top-left is 0,0
+  optional float x = 1;
+  optional float y = 2;
+  optional float width = 3;
+  optional float height = 4;
+}
+
+enum EmotionClass {
+  PEACE          = 1;
+  AFFECTION      = 2;
+  ESTEEM         = 3;
+  ANTICIPATION   = 4;
+  ENGAGEMENT     = 5;
+  CONFIDENCE     = 6;
+  HAPPINESS      = 7;
+  PLEASURE       = 8;
+  EXCITEMENT     = 9;
+  SURPRISE       = 10;
+  SYMPATHY       = 11;
+  CONFUSION      = 12;
+  DISCONNECTION  = 13;
+  FATIGUE        = 14;
+  EMBARRASSMENT  = 15;
+  YEARNING       = 16;
+  DISAPPROVAL    = 17;
+  AVERSION       = 18;
+  ANNOYANCE      = 19;
+  ANGER          = 20;
+  SENSITIVITY    = 21;
+  SADNESS        = 22;
+  DISQUIETMENT   = 23;
+  FEAR           = 24;
+  PAIN           = 25;
+  SUFFERING      = 26;
+  DOUBT_CONFUSION = 27;
+}
+
+message DiscreteEmotion {
+  repeated EmotionClass emotions = 1;
+}
+
+
+message ContinuousEmotion {
+  optional float valence = 1;
+  optional float arousal = 2;
+  optional float dominance = 3;
+}
+
+enum Role {
+  BULLY     = 1;
+  VICTIM    = 2;
+  BYSTANDER = 3;
+}
+
+enum Gender {
+  MALE   = 1;
+  FEMALE = 2;
+}
+
+enum Age {
+  KID      = 1;
+  TEENAGER = 2;
+  ADULT    = 3;
+}
+
+message Person {
+  // we are going to NaN anything we don't actually have
+  optional Bbox location = 1;
+  optional DiscreteEmotion discrete_emotion = 2;
+  optional ContinuousEmotion continuous_emotion = 3;
+  optional Role role = 4;
+  optional Gender gender = 5;
+  optional Age age = 6;
+}
+
+enum BullingClass {
+  GOSSIPING      = 1;
+  LAUGHING       = 2;
+  PULLING_HAIR   = 3;
+  QUARRELING     = 4;
+  STABBING       = 5;
+  ISOLATION      = 6;
+  PUNCHING       = 7;
+  SLAPPING       = 8;
+  STRANGLING     = 9;
+}
+
+enum DataClass {
+  TRAIN      = 1;
+  TEST       = 2;
+  VALIDATION = 3;
+}
+
+message Annotation {
+  optional bool contains_bullying = 1;
+  optional BullingClass bullying_class = 2;
+  repeated Person people = 3;
+  optional string file_path = 4;
+  optional string dataset = 5;
+  optional Size image_size = 6;
+  optional DataClass data_class = 7;
+}

@@ -1,0 +1,116 @@
+syntax = "proto2";
+
+package cyberbully_detector;
+
+import "common.proto";
+
+enum ColorMode {
+  GRAYSCALE                    = 1;
+  RBG                          = 2;
+  RGBA                         = 3;
+  RGB                          = 4;
+}
+
+message OptimizerConfig {
+  message DefaultString {
+    optional string name = 1;
+  }
+  message SGD {
+    optional float learning_rate = 1 [default = 0.01];
+    optional float momentum      = 2 [default = 0];
+    optional float decay         = 3 [default = 0];
+    optional bool nesterov       = 4 [default = false];
+  }
+
+  oneof optimizer {
+    DefaultString default_string = 1;
+    SGD sgd                      = 2;
+  }
+}
+
+message ModelDescription {
+  message ConvLayer {
+    optional int32 filters     = 1 [default = 128];
+    optional Size kernel_size  = 2;
+    optional Size pool_size    = 3;
+    optional string pool_type  = 4 [default = "max"];
+  }
+  message DenseLayer {
+    optional int32 units       = 1;
+    optional string activation = 2 [default = "relu"];
+  }
+  message FlattenLayer {
+  }
+  message DropoutLayer {
+    optional float rate        = 1 [default = 0.5];
+  }
+  message TransferLayer {
+    optional string weights    = 2 [default = "imagenet"];
+    optional bool freeze       = 3 [default = true];
+  }
+
+  message Layer {
+    oneof config {
+      ConvLayer convolutional  = 1;
+      DenseLayer dense         = 2;
+      FlattenLayer flatten     = 3;
+      DropoutLayer dropout     = 4;
+      TransferLayer transfer   = 5;
+    }
+    optional string name       = 100;
+  }
+  repeated Layer layers              = 1;
+  optional OptimizerConfig optimizer = 2;
+  optional string loss               = 3 [default = "categorical_crossentropy"];
+  repeated string metrics            = 4;
+}
+
+message SystemConfig {
+  // Number of data generators to use.
+  // Positive numbers are the count
+  // Negative numbers subtract from CPU count
+  // Zero executes worker on main thread
+  // Default generates n-1 new threads (to leave room for main)
+  optional int32 workers       = 1 [default=-1];
+  optional int32 gpus          = 2;
+}
+
+message GeneratorConfig {
+  // Defaults provide no data augmentation
+  optional bool horizontal_flip         = 2  [default = false];
+  optional bool vertical_flip           = 3  [default = false];
+  optional float shear_range            = 4  [default = 0];
+  optional float zoom_range             = 5  [default = 0];
+  optional float width_shift_range      = 6  [default = 0];
+  optional float height_shift_range     = 7  [default = 0];
+  optional float rotation_range         = 8  [default = 0];
+  optional bool standardize_features    = 9;
+  optional bool whitening               = 10;
+}
+
+message Config {
+  // Values for input data and augmentation
+  optional Size target_size             = 1;
+  optional GeneratorConfig generator    = 2;
+  optional string vis_result_dir        = 3;
+  optional ColorMode color_mode         = 4  [default = RGB];
+  optional bool shuffle_input           = 5  [default = true];
+
+  // Model parameters
+  oneof model_type {
+    ModelDescription model       = 6;
+    string custom_model = 16;
+  }
+  optional string class_mode            = 7  [default = "categorical"];
+  optional int32 batch_size             = 8  [default = 1];
+  optional int32 epochs                 = 9  [default = 5];
+  optional int32 steps_per_epoch        = 10 [default = 100];
+  optional float validation_split       = 11 [default = 0];
+  optional int32 validation_steps       = 12;
+  optional bool balance_class_weight    = 13 [default = false];
+
+  // System config
+  optional SystemConfig system          = 14;
+  optional int32 seed                   = 15;
+}
+

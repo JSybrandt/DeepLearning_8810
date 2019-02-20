@@ -1,0 +1,8 @@
+syntax = "proto2";
+
+package cyberbully_detector;
+
+message Size {
+  optional int32 width         = 1;
+  optional int32 height        = 2;
+}

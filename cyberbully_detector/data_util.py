@@ -2,9 +2,37 @@ from .bully_pb2 import GRAYSCALE, RGBA, RGB, RBG
 from .bully_pb2 import Config
 from .proto_util import PROTO_PARSERS
 from .proto_util import get_or_none
+from .labels_pb2 import Annotation
+from .labels_pb2 import DataClass
 from keras.preprocessing.image import ImageDataGenerator
 import logging as log
 import multiprocessing
+from pymongo import MongoClient
+from google.protobuf.json_format import Parse as json2proto
+import json
+
+MONGO_HOST = "jcloud"
+annotation_db_client = MongoClient(MONGO_HOST)
+annotation_db = annotation_db_client.DL_8810
+
+def get_annotation_ids(data_class, dataset=None):
+  "If dataset is a string, we will only return annotations from that set "
+  "matching the class"
+  if type(data_class) == int:
+    data_class == DataClass.Name(data_class)
+
+  query = {"dataClass": data_class}
+  if dataset is not None:
+    query["dataset"] = dataset
+
+  res = []
+  for query_res in annotation_db.annotations.find(query, {"_id":1}):
+    res.append(query_res["_id"])
+  return res
+
+def load_annotation(mongo_id):
+  annotation_json = annotation_db.annotations.find_one({"_id":mongo_id}, {"_id":0})
+  return json2proto(json.dumps(annotation_json), Annotation())
 
 def colormode_to_str(color_mode):
   modes = {}
@@ -33,7 +61,12 @@ def setup_training_data_generator(data_path, config):
       width_shift_range=config.generator.width_shift_range,
       height_shift_range=config.generator.height_shift_range,
       rotation_range=config.generator.rotation_range,
-      validation_split=config.validation_split)
+      validation_split=config.validation_split,
+      # featurewise_center=config.generator.standardize_features,
+      # featurewise_std_normalization=config.generator.standardize_features,
+      # zca_whitening=config.generator.whitening
+      )
+
   return [ gen.flow_from_directory(
              data_path,
              target_size=(config.target_size.width,
