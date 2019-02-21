@@ -126,6 +126,7 @@ def annotation_to_vector(annotation, num_people):
   if len(people) > num_people:
     people = sample(people, num_people)
 
+  assert len(people) == num_people
   shuffle(people)
 
   return np.concatenate([

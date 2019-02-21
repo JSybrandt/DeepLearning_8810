@@ -42,10 +42,11 @@ class ImageAndAnnotationGenerator:
     img = img.resize((desired_w, desired_h), Image.ANTIALIAS)
 
     for person in annotation.people:
-      person.location.x *= rescale_ratio
-      person.location.y *= rescale_ratio
-      person.location.width *= rescale_ratio
-      person.location.height *= rescale_ratio
+      if person.HasField("location"):
+        person.location.x *= rescale_ratio
+        person.location.y *= rescale_ratio
+        person.location.width *= rescale_ratio
+        person.location.height *= rescale_ratio
 
     return img, annotation
 
@@ -66,44 +67,74 @@ class ImageAndAnnotationGenerator:
                     y_diff,
                     x_diff+self.sample_size[0],
                     y_diff+self.sample_size[1]))
+    assert img.size == self.sample_size
 
     annotation_cpy = Annotation()
     annotation_cpy.CopyFrom(annotation)
     annotation.ClearField("people")
 
     for person in annotation_cpy.people:
-      if person.location.x > x_diff + self.sample_size[0]:
-        continue
-      if person.location.y > y_diff + self.sample_size[1]:
-        continue
-      if person.location.x + person.location.width < x_diff:
-        continue
-      if person.location.y + person.location.height < y_diff:
-        continue
+      if person.HasField("location"):
+        if person.location.x > x_diff + self.sample_size[0]:
+          continue
+        if person.location.y > y_diff + self.sample_size[1]:
+          continue
+        if person.location.x + person.location.width < x_diff:
+          continue
+        if person.location.y + person.location.height < y_diff:
+          continue
+        person.location.x = person.location.x - x_diff
+        person.location.y = person.location.y - y_diff
+        if person.location.x < 0:
+          # x is neg
+          person.location.width += person.location.x
+          person.location.x = 0
+        if person.location.y < 0:
+          # y is neg
+          person.location.height += person.location.y
+          person.location.y = 0
 
-      person.location.x = person.location.x - x_diff
-      person.location.y = person.location.y - y_diff
-      if person.location.x < 0:
-        person.location.width += person.location.x
-        person.location.x = 0
-      if person.location.y < 0:
-        person.location.height += person.location.y
-        person.location.y = 0
+        # if bbox extends beyond img
+        if person.location.width + person.location.x > self.sample_size[0]:
+          person.location.width = self.sample_size[0] - person.location.x
+        if person.location.height + person.location.y > self.sample_size[1]:
+          person.location.height = self.sample_size[1] - person.location.y
 
-      annotation.people.add().CopyFrom(person)
+        assert person.location.width <= img.size[0]
+        assert person.location.height <= img.size[1]
+        if person.location.height > 0 and person.location.width > 0:
+          annotation.people.add().CopyFrom(person)
+      else:
+        annotation.people.add().CopyFrom(person)
     return img, annotation
 
   def _horizontal_flip(self, img, annotation):
     img = ImageOps.mirror(img)
     for person in annotation.people:
-      person.location.x = img.size[0] - person.location.x - person.location.width
+      if person.HasField("location"):
+        person.location.x = img.size[0] - person.location.x - person.location.width
     return img, annotation
 
   def _vertical_flip(self, img, annotation):
     img = ImageOps.flip(img)
     for person in annotation.people:
-      person.location.y = img.size[1] - person.location.y - person.location.height
+      if person.HasField("location"):
+        person.location.y = img.size[1] - person.location.y - person.location.height
     return img, annotation
+
+  def _zero_one_scale_people(self, img, annotation):
+    for person in annotation.people:
+      if person.HasField("location"):
+        person.location.x /= img.size[0]
+        person.location.y /= img.size[1]
+        person.location.width /= img.size[0]
+        person.location.height /= img.size[1]
+      if person.HasField("continuous_emotion"):
+        person.continuous_emotion.valence /= 10
+        person.continuous_emotion.arousal /= 10
+        person.continuous_emotion.dominance /= 10
+    return img, annotation
+
 
   def _process_id(self, mongo_id):
     # Loads image from ref_annotation
@@ -118,6 +149,11 @@ class ImageAndAnnotationGenerator:
       img, annotation = self._horizontal_flip(img, annotation)
     if random.random() < 0.5:
       img, annotation = self._vertical_flip(img, annotation)
+
+    img,annotation = self._zero_one_scale_people(img, annotation)
+
+    if len(img.size) != 3:
+      img = img.convert("RGB")
 
     raw_data = np.asarray(img, dtype=np.int32)
     vector = annotation_to_vector(annotation, self.num_people)
