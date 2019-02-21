@@ -1,6 +1,11 @@
 from google.protobuf import json_format
 from google.protobuf import text_format
+from .labels_pb2 import Annotation
+from . import labels_pb2 as LB
 import json
+import numpy as np
+from random import sample
+from random import shuffle
 
 def parse_pb_to_proto(path, proto_obj):
   with open(path, 'rb') as proto_file:
@@ -27,3 +32,193 @@ PROTO_PARSERS = {
     ".proto": parse_txt_to_proto,
     ".config": parse_txt_to_proto,
 }
+
+def enum_size(enum_type):
+  return max(enum_type.values())
+
+def enum_to_vec(enum_val, enum_type):
+  vals = np.empty(enum_size(enum_type))
+  if enum_val is None:
+    vals[:] = np.nan
+  else:
+    if type(enum_val) is not int:
+      enum_val = enum.Value(enum_val)
+    vals[:] = 0
+    vals[enum_val-1] = 1
+  return vals
+
+def simple_proto_size(msg_type):
+  return len(msg_type.DESCRIPTOR.fields)
+
+def simple_proto_to_vec(msg):
+  vals = np.empty(simple_proto_size(msg))
+  for i, field in enumerate(msg.DESCRIPTOR.fields):
+    if msg.HasField(field.name):
+      vals[i] = getattr(msg, field.name)
+    else:
+      vals[i] = np.nan
+  return vals
+
+def discrete_emotion_size():
+  return enum_size(LB.EmotionClass)
+
+def discrete_emotion_to_vec(discrete_emotion):
+  vals = np.empty(enum_size(LB.EmotionClass))
+  if discrete_emotion is None:
+    vals[:] = np.nan
+  else:
+    vals[:] = 0
+    for emotion in discrete_emotion.emotions:
+      vals[emotion-1] = 1
+  return vals
+
+def person_size():
+  return sum([
+    1, # Do I Exist?
+    simple_proto_size(LB.Bbox),
+    discrete_emotion_size(),
+    simple_proto_size(LB.ContinuousEmotion),
+    enum_size(LB.Role),
+    enum_size(LB.Gender),
+    enum_size(LB.Age)
+  ])
+
+def person_to_vec(person):
+  if person is not None:
+    return np.concatenate([
+        [1],  # I exist!
+        simple_proto_to_vec(person.location),
+        discrete_emotion_to_vec(get_or_none(person, "discrete_emotion")),
+        simple_proto_to_vec(person.continuous_emotion),
+        enum_to_vec(get_or_none(person, "role"),
+                    LB.Role),
+        enum_to_vec(get_or_none(person, "gender"),
+                    LB.Gender),
+        enum_to_vec(get_or_none(person, "age"),
+                    LB.Age)], axis=0)
+  else:
+    vals = np.empty(person_size())
+    vals[0] = 0 # I do not exist
+    vals[1:] = np.nan
+    return vals
+
+def bool_to_vec(bool_val):
+  vals = np.empty(1)
+  if bool_val is None:
+    vals[0] = np.nan
+  elif bool_val:
+    vals[0] = 1
+  else:
+    vals[0] = 0
+  return vals
+
+def annotation_size(num_people):
+  return sum([
+    1,
+    enum_size(LB.BullyingClass),
+    person_size() * num_people
+  ])
+
+def annotation_to_vector(annotation, num_people):
+  people = [person for person in annotation.people]
+  while len(people) < num_people:
+    people.append(None)
+  if len(people) > num_people:
+    people = sample(people, num_people)
+
+  shuffle(people)
+
+  return np.concatenate([
+    bool_to_vec(get_or_none(annotation, "contains_bullying")),
+    enum_to_vec(get_or_none(annotation, "bullying_class"), LB.BullyingClass),
+  ] + [person_to_vec(p) for p in people])
+
+# CONVERTING BACK
+
+def val_to_bool(val):
+  if np.isnan(val):
+    return None
+  return val > 0.5
+
+def val_to_enum(vals):
+  potential_idx = np.argmax(vals)
+  if vals[potential_idx] > 0.5:
+    return potential_idx+1
+  return None
+
+def vec_to_simple_proto(vals, msg):
+  assert len(msg.DESCRIPTOR.fields) == len(vals)
+  for i, field in enumerate(msg.DESCRIPTOR.fields):
+    setattr(msg, field.name, vals[i])
+
+def vec_to_discrete_emotion(vals, msg):
+  assert enum_size(LB.EmotionClass) == len(vals)
+  for idx, val in enumerate(vals):
+    if val > 0.5:
+      msg.emotions.append(idx+1)
+
+def vector_to_person(vector):
+  if vector[0] < 0.5:
+    return None
+  person = LB.Person()
+
+  idx = 1
+  size = simple_proto_size(person.location)
+  vec = vector[idx:idx+size] ; idx += size
+  vec_to_simple_proto(vec, person.location)
+
+  size = discrete_emotion_size()
+  vec = vector[idx:idx+size] ; idx += size
+  vec_to_discrete_emotion(vec, person.discrete_emotion)
+
+  size = simple_proto_size(person.continuous_emotion)
+  vec = vector[idx:idx+size] ; idx += size
+  vec_to_simple_proto(vec, person.continuous_emotion)
+
+  size = enum_size(LB.Role)
+  vec = vector[idx:idx+size] ; idx += size
+  tmp = val_to_enum(vec)
+  if tmp is not None:
+    person.role = tmp
+
+  size = enum_size(LB.Gender)
+  vec = vector[idx:idx+size] ; idx += size
+  tmp = val_to_enum(vec)
+  if tmp is not None:
+    person.gender = tmp
+
+  size = enum_size(LB.Age)
+  vec = vector[idx:idx+size] ; idx += size
+  tmp = val_to_enum(vec)
+  if tmp is not None:
+    person.age = tmp
+  return person
+
+
+def vector_to_annotation(vector):
+  annotation = Annotation()
+
+  idx = 0
+  tmp = val_to_bool(vector[idx])
+  if tmp is not None:
+    annotation.contains_bullying = tmp
+  idx += 1
+
+  num_vals = enum_size(LB.BullyingClass)
+  tmp = val_to_enum(vector[idx:idx+num_vals])
+  if tmp is not None:
+    annotation.bullying_class = tmp
+  idx += num_vals
+
+  size = person_size()
+  while idx < len(vector):
+    person_vec = vector[idx:idx+size]
+    tmp = vector_to_person(person_vec)
+    if tmp is not None:
+      person = annotation.people.add()
+      person.CopyFrom(tmp)
+    idx+=size
+
+  assert idx == len(vector)
+  return annotation
+

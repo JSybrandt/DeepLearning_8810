@@ -18,8 +18,6 @@ protoc \
 # Protoc issue https://github.com/protocolbuffers/protobuf/issues/1491
 sed -i -E 's/^import.*_pb2/from . \0/' cyberbully_detector/*_pb2.py
 
-exit
-
 pip install --user -r requirements.txt
 pip install --user -e .
 

@@ -81,7 +81,7 @@ message Person {
   optional Age age = 6;
 }
 
-enum BullingClass {
+enum BullyingClass {
   GOSSIPING      = 1;
   LAUGHING       = 2;
   PULLING_HAIR   = 3;
@@ -101,8 +101,10 @@ enum DataClass {
 
 message Annotation {
   optional bool contains_bullying = 1;
-  optional BullingClass bullying_class = 2;
+  optional BullyingClass bullying_class = 2;
   repeated Person people = 3;
+
+  // This stuff is metadata
   optional string file_path = 4;
   optional string dataset = 5;
   optional Size image_size = 6;
