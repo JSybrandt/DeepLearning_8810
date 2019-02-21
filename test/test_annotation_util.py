@@ -8,8 +8,19 @@ from cyberbully_detector.proto_util import enum_to_vec
 from cyberbully_detector.proto_util import person_to_vec
 from cyberbully_detector.proto_util import discrete_emotion_to_vec
 from cyberbully_detector.proto_util import simple_proto_to_vec
+from cyberbully_detector.proto_util import split_batch
 import cyberbully_detector.labels_pb2 as LB
 import numpy as np
+
+def test_batch():
+  ids = get_annotation_ids("TRAIN")
+  ids = ids[:10]
+  vectors = [annotation_to_vector(load_annotation(i),2)
+             for i in ids]
+  outputs = split_batch(vectors)
+  assert len(outputs) == 16
+  for o in outputs:
+    assert outputs[0].shape[0] == o.shape[0]
 
 def test_end_to_end():
   ids = get_annotation_ids("TRAIN")

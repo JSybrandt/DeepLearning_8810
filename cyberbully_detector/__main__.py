@@ -67,13 +67,14 @@ def parse_args():
     err_msg="File path must be writable."
   ))
 
-  root_parser.add_argument("data",
+  root_parser.add_argument("--data",
                             type=Path,
-                            help="Location of data. Subdir per class")
+                            help="Location of data. Subdir per data source",
+                            default="./data")
   checks.append(ArgumentCheck(
     command="root",
     param_name="data",
-    assert_fn=lambda a: a.train_data_dir.is_dir(),
+    assert_fn=lambda a: a.data_dir.is_dir(),
     err_msg="Cannot find directory"
   ))
 

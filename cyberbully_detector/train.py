@@ -6,7 +6,10 @@ from .data_util import get_worker_count
 from .data_util import get_config
 from .bully_pb2 import Config
 from .proto_util import get_or_none
-from .models import CUSTOM_MODELS
+from .generator import ImageAndAnnotationGenerator
+from . import labels_pb2 as LB
+from .proto_util import enum_size
+from .proto_util import simple_proto_size
 from keras.models import Model
 from keras.models import load_model
 from keras.layers import Input
@@ -15,13 +18,16 @@ from keras.layers import Conv2D
 from keras.layers import MaxPooling2D
 from keras.layers import Flatten
 from keras.layers import Dropout
+from keras.layers import Concatenate
 from keras.utils import multi_gpu_model
 from keras.callbacks import TerminateOnNaN
 from keras.callbacks import EarlyStopping
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import TensorBoard
 from keras.optimizers import SGD
+from keras.utils import plot_model
 from keras import applications as kapps
+import keras.backend as K
 import numpy as np
 
 def add_convolutional(conv_config, current_layer):
@@ -79,11 +85,57 @@ def load_transfer_layers(layer_conf, current_layer):
   if layer_conf.transfer.freeze:
     for layer in transfer_model.layers:
       layer.trainable = False
+  elif layer_conf.transfer.HasField("partial_freeze"):
+    for layer in transfer_model.layers[:layer_conf.transfer.partial_freeze]:
+      layer.trainable = False
+
   return transfer_model.output
 
+def get_output_layers(num_people, prev_layer):
+  outputs = []
+  # Contains bullying
+  outputs.append(Dense(1,
+                      activation="sigmoid",
+                      name="contains_bullying")(prev_layer))
+  # Bully Type
+  outputs.append(Dense(enum_size(LB.BullyingClass),
+                      activation="softmax",
+                      name="bullying_class")(prev_layer))
+  # For each person
+  for p_idx in range(num_people):
+    outputs.append(Dense(1,
+                        activation="sigmoid",
+                        name="exists_{}".format(p_idx)
+                       )(prev_layer))
+    outputs.append(Dense(simple_proto_size(LB.Bbox),
+                        activation="relu",
+                        name="bbox_{}".format(p_idx)
+                       )(prev_layer))
+    outputs.append(Dense(enum_size(LB.EmotionClass),
+                        activation="sigmoid",
+                        name="discrete_emotion_{}".format(p_idx)
+                       )(prev_layer))
+    outputs.append(Dense(simple_proto_size(LB.ContinuousEmotion),
+                        activation="relu",
+                        name="continuous_emotion_{}".format(p_idx)
+                       )(prev_layer))
+    outputs.append(Dense(enum_size(LB.Role),
+                        activation="softmax",
+                        name="role_{}".format(p_idx)
+                       )(prev_layer))
+    outputs.append(Dense(enum_size(LB.Gender),
+                        activation="softmax",
+                        name="gender_{}".format(p_idx)
+                       )(prev_layer))
+    outputs.append(Dense(enum_size(LB.Age),
+                        activation="softmax",
+                        name="age_{}".format(p_idx)
+                       )(prev_layer))
+  return outputs
 
-def initialize_model(config, num_classes):
+def initialize_model(config, num_people):
   if config.HasField("custom_model"):
+    ValueError("Custom Models not impl")
     if config.custom_model in CUSTOM_MODELS:
       return CUSTOM_MODELS[config.custom_model](config)
     else:
@@ -119,7 +171,8 @@ def initialize_model(config, num_classes):
     else:
       raise ValueError("Layer not supported.")
 
-  model = Model(input_layer, current_layer)
+  outputs = get_output_layers(num_people, current_layer)
+  model = Model(input=input_layer, output=outputs)
   return model
 
 
@@ -135,41 +188,48 @@ def initialize_optimizer(config):
   else:
     raise ValueError("Must supply optimizer.")
 
-def get_class_weights(config, generator):
-  if not config.balance_class_weight:
-    return None
-  classes, counts = np.unique(generator.classes, return_counts=True)
-  max_count = max(counts)
-  weights = {c: max_count/count for c, count in zip(classes, counts)}
-  log.info("Using class weights")
-  log.info(weights)
-  return weights
-
+def mse_nan(y_true, y_pred):
+  # This loss function excludes NaN
+  # Code taken from GitHub comment:
+  # https://github.com/keras-team/keras/issues/9549
+  index = ~K.tf.is_nan(y_true)
+  y_true = K.tf.boolean_mask(y_true, index)
+  y_pred = K.tf.boolean_mask(y_pred, index)
+  # Need max in case of nan
+  return K.maximum(K.mean((y_true - y_pred) ** 2), K.zeros(shape=(1,)))
 
 def train_main(args):
   # Entry point into training from __main__.py
 
   config = get_config(args)
 
-  train_generator, val_generator = setup_training_data_generator(args.data, config)
-
-  num_classes = len(train_generator.class_indices)
+  train_generator = ImageAndAnnotationGenerator(
+      args.data,
+      split_type="TRAIN",
+      num_people=config.max_people_per_img
+  ).flow_from_mongo(
+    sample_size=(config.target_size.width, config.target_size.height),
+    short_side_size=config.short_side_size,
+    batch_size=config.batch_size
+  )
 
   if args.model.is_file():
     log.info("Loading model to continue training from %s", args.model)
     model = load_model(str(args.model))
   else:
     log.info("Creating a new model")
-    model = initialize_model(config, num_classes)
+    model = initialize_model(config, config.max_people_per_img)
 
   if config.system.HasField("gpus"):
     log.info("Configuring for %s gpus", config.system.gpus)
     model = multi_gpu_model(model, gpus=config.system.gpus)
 
+  plot_model(model, to_file='model.png')
+
   optimizer = initialize_optimizer(config)
 
   model.compile(optimizer=optimizer,
-                loss=config.model.loss,
+                loss=mse_nan,
                 metrics=config.model.metrics)
 
   log.info(model.summary())
@@ -178,10 +238,9 @@ def train_main(args):
       train_generator,
       epochs=config.epochs,
       steps_per_epoch=config.steps_per_epoch,
-      validation_data=val_generator,
-      validation_steps=config.validation_steps,
-      workers=get_worker_count(config),
-      class_weight=get_class_weights(config, train_generator),
+#      validation_data=val_generator,
+      # validation_steps=config.validation_steps,
+ #     workers=get_worker_count(config),
       callbacks = [
   #      EarlyStopping(),
         TerminateOnNaN(),

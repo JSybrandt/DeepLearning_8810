@@ -5,14 +5,18 @@
 from .data_util import get_annotation_ids
 from .data_util import load_annotation
 from .labels_pb2 import Annotation
+from .proto_util import annotation_to_vector
+from .proto_util import annotation_size
+from .proto_util import split_batch
 from PIL import Image, ImageOps
 import random
 from pathlib import Path
+import numpy as np
 
 from multiprocessing import Pool
 
 class ImageAndAnnotationGenerator:
-  def __init__(self, data_path, seed=None):
+  def __init__(self, data_path, split_type, num_people, dataset=None, seed=None):
     """
     data_path: the root location of images. Inside should be a dir per dataset
     seed: set random seed
@@ -20,6 +24,9 @@ class ImageAndAnnotationGenerator:
     self.data_path = Path(data_path)
     if seed is not None:
       random.seed(seed)
+    self.num_people = num_people
+    self.dataset = dataset
+    self.split_type = split_type
 
   def _load_image(self, annotation):
     img_path = self.data_path.joinpath(annotation.file_path)
@@ -112,16 +119,18 @@ class ImageAndAnnotationGenerator:
     if random.random() < 0.5:
       img, annotation = self._vertical_flip(img, annotation)
 
-    return img, annotation
+    raw_data = np.asarray(img, dtype=np.int32)
+    vector = annotation_to_vector(annotation, self.num_people)
+    return raw_data, vector
+
+  def get_label_size(self):
+    return annotation_size(self.num_people)
 
   def flow_from_mongo(
       self,
-      data_class,
       sample_size,
       short_side_size,
-      batch_size,
-      dataset=None,
-      workers=1):
+      batch_size):
     """
     data_class: one of labels_pb2.DataClass
     sample_size: (width, height) in pixels of cropped image
@@ -133,16 +142,12 @@ class ImageAndAnnotationGenerator:
 
     self.sample_size = sample_size
     self.short_side_size = short_side_size
+    ids = get_annotation_ids(self.split_type, self.dataset)
     # Generators go forever
     while True:
-      with Pool(workers) as pool:
-        ids = get_annotation_ids(data_class, dataset)
-        random.shuffle(ids)
-        for batch_start in range(0, len(ids), batch_size):
-          batch_ids = ids[batch_start:batch_start + batch_size]
-          image_annotation_list = [self._process_id(id_) for id_ in batch_ids]
-          #image_annotation_list = pool.map(self._process_id, batch_ids)
-          images = [x[0] for x in image_annotation_list]
-          annotations = [x[1] for x in image_annotation_list]
-          yield images, annotations
+      batch_ids = random.sample(ids, batch_size)
+      image_annotation_list = [self._process_id(id_) for id_ in batch_ids]
+      data = np.stack([x[0] for x in image_annotation_list])
+      labels = np.stack([x[1] for x in image_annotation_list])
+      yield data, split_batch(labels)
 

@@ -133,6 +133,46 @@ def annotation_to_vector(annotation, num_people):
     enum_to_vec(get_or_none(annotation, "bullying_class"), LB.BullyingClass),
   ] + [person_to_vec(p) for p in people])
 
+def split_batch(vectors):
+  # converts a batch of vectors to multiple columns
+  matrix = np.stack(vectors)
+  outputs = []
+  col_idx = 0
+
+  size=1
+  outputs.append(matrix[:,col_idx:col_idx+size])
+  col_idx+=size
+
+  size=enum_size(LB.BullyingClass)
+  outputs.append(matrix[:,col_idx:col_idx+size])
+  col_idx+=size
+
+  while col_idx < matrix.shape[1]:
+    # exists
+    size=1
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+    size=simple_proto_size(LB.Bbox)
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+    size=discrete_emotion_size()
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+    size=simple_proto_size(LB.ContinuousEmotion)
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+    size=enum_size(LB.Role)
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+    size=enum_size(LB.Gender)
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+    size=enum_size(LB.Age)
+    outputs.append(matrix[:,col_idx:col_idx+size])
+    col_idx+=size
+
+  return outputs
+
 # CONVERTING BACK
 
 def val_to_bool(val):
@@ -221,4 +261,3 @@ def vector_to_annotation(vector):
 
   assert idx == len(vector)
   return annotation
-

@@ -45,8 +45,9 @@ message ModelDescription {
     optional float rate        = 1 [default = 0.5];
   }
   message TransferLayer {
-    optional string weights    = 2 [default = "imagenet"];
-    optional bool freeze       = 3 [default = true];
+    optional string weights       = 1 [default = "imagenet"];
+    optional bool freeze          = 2 [default = true];
+    optional int32 partial_freeze = 3;
   }
 
   message Layer {
@@ -95,6 +96,8 @@ message Config {
   optional string vis_result_dir        = 3;
   optional ColorMode color_mode         = 4  [default = RGB];
   optional bool shuffle_input           = 5  [default = true];
+  optional int32 max_people_per_img     = 17 [default = 1];
+  optional int32 short_side_size        = 18;
 
   // Model parameters
   oneof model_type {
