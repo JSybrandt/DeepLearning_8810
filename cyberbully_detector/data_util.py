@@ -11,11 +11,11 @@ from pymongo import MongoClient
 from google.protobuf.json_format import Parse as json2proto
 import json
 
-MONGO_HOST = "jcloud"
-annotation_db_client = MongoClient(MONGO_HOST)
-annotation_db = annotation_db_client.DL_8810
 
-def get_annotation_ids(data_class, dataset=None):
+def get_annotation_db_connection(host="jcloud", db_name="DL_8810"):
+  return MongoClient(host)[db_name]
+
+def get_annotation_ids(db, data_class, dataset=None):
   "If dataset is a string, we will only return annotations from that set "
   "matching the class"
   if type(data_class) == int:
@@ -26,12 +26,12 @@ def get_annotation_ids(data_class, dataset=None):
     query["dataset"] = dataset
 
   res = []
-  for query_res in annotation_db.annotations.find(query, {"_id":1}):
+  for query_res in db.annotations.find(query, {"_id":1}):
     res.append(query_res["_id"])
   return res
 
-def load_annotation(mongo_id):
-  annotation_json = annotation_db.annotations.find_one({"_id":mongo_id}, {"_id":0})
+def load_annotation(db, mongo_id):
+  annotation_json = db.annotations.find_one({"_id":mongo_id}, {"_id":0})
   return json2proto(json.dumps(annotation_json), Annotation())
 
 def colormode_to_str(color_mode):

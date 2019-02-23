@@ -22,3 +22,14 @@ def load_annotated_img(annotation, data_path="data"):
   img = Image.open(str(img_path))
   return draw_boxes_on_image(img, annotation)
 
+def np_array_to_img(arr):
+  assert len(arr.shape) == 3 # X Y COLOR
+  assert arr.shape[-1] == 3  # RGB
+  arr *= 255
+  return Image.fromarray(arr.astype(np.int8), "RGB")
+
+def image_to_np_array(img):
+  img = img.convert("RGB")
+  arr = np.array(img, dtype=np.float32)
+  arr /= 255
+  return arr

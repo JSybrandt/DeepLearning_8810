@@ -136,7 +136,7 @@ def annotation_to_vector(annotation, num_people):
 
 def split_batch(vectors):
   # converts a batch of vectors to multiple columns
-  matrix = np.stack(vectors)
+  matrix = np.vstack(vectors)
   outputs = []
   col_idx = 0
 
@@ -173,6 +173,18 @@ def split_batch(vectors):
     col_idx+=size
 
   return outputs
+
+def zero_one_scale_people(ref_img, annotation):
+  for person in annotation.people:
+    if person.HasField("location"):
+      person.location.x /= ref_img.size[0]
+      person.location.y /= ref_img.size[1]
+      person.location.width /= ref_img.size[0]
+      person.location.height /= ref_img.size[1]
+    if person.HasField("continuous_emotion"):
+      person.continuous_emotion.valence /= 10
+      person.continuous_emotion.arousal /= 10
+      person.continuous_emotion.dominance /= 10
 
 # CONVERTING BACK
 
@@ -262,3 +274,15 @@ def vector_to_annotation(vector):
 
   assert idx == len(vector)
   return annotation
+
+def unscale_people(ref_img, annotation):
+  for person in annotation.people:
+    if person.HasField("location"):
+      person.location.x *= ref_img.size[0]
+      person.location.y *= ref_img.size[1]
+      person.location.width *= ref_img.size[0]
+      person.location.height *= ref_img.size[1]
+    if person.HasField("continuous_emotion"):
+      person.continuous_emotion.valence *= 10
+      person.continuous_emotion.arousal *= 10
+      person.continuous_emotion.dominance *= 10

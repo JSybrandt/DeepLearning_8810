@@ -204,13 +204,12 @@ def train_main(args):
   config = get_config(args)
 
   train_generator = ImageAndAnnotationGenerator(
-      args.data,
+      data_path=args.data,
       split_type="TRAIN",
-      num_people=config.max_people_per_img
-  ).flow_from_mongo(
-    sample_size=(config.target_size.width, config.target_size.height),
-    short_side_size=config.short_side_size,
-    batch_size=config.batch_size
+      num_people=config.max_people_per_img,
+      sample_size=(config.target_size.width, config.target_size.height),
+      short_side_size=config.short_side_size,
+      batch_size=config.batch_size
   )
 
   if args.model.is_file():
