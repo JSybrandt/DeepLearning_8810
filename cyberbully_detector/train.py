@@ -6,10 +6,12 @@ from .data_util import get_worker_count
 from .data_util import get_config
 from .bully_pb2 import Config
 from .proto_util import get_or_none
+from .proto_util import annotation_size
 from .generator import ImageAndAnnotationGenerator
 from . import labels_pb2 as LB
 from .proto_util import enum_size
 from .proto_util import simple_proto_size
+from .model_util import mse_nan
 from keras.models import Model
 from keras.models import load_model
 from keras.layers import Input
@@ -27,7 +29,6 @@ from keras.callbacks import TensorBoard
 from keras.optimizers import SGD
 from keras.utils import plot_model
 from keras import applications as kapps
-import keras.backend as K
 import numpy as np
 
 def add_convolutional(conv_config, current_layer):
@@ -133,7 +134,7 @@ def get_output_layers(num_people, prev_layer):
                        )(prev_layer))
   return outputs
 
-def initialize_model(config, num_people):
+def initialize_model(config, num_people, split_output):
   if config.HasField("custom_model"):
     ValueError("Custom Models not impl")
     if config.custom_model in CUSTOM_MODELS:
@@ -172,7 +173,12 @@ def initialize_model(config, num_people):
       raise ValueError("Layer not supported.")
 
   outputs = get_output_layers(num_people, current_layer)
-  model = Model(input=input_layer, output=outputs)
+  if split_output:
+    model = Model(inputs=input_layer, outputs=outputs)
+  else:
+    output = Concatenate()(outputs)
+    #output = Dense(annotation_size(num_people), activation="relu", name="output")(current_layer)
+    model = Model(inputs=input_layer, outputs=output)
   return model
 
 
@@ -188,28 +194,33 @@ def initialize_optimizer(config):
   else:
     raise ValueError("Must supply optimizer.")
 
-def mse_nan(y_true, y_pred):
-  # This loss function excludes NaN
-  # Code taken from GitHub comment:
-  # https://github.com/keras-team/keras/issues/9549
-  index = ~K.tf.is_nan(y_true)
-  y_true = K.tf.boolean_mask(y_true, index)
-  y_pred = K.tf.boolean_mask(y_pred, index)
-  # Need max in case of nan
-  return K.maximum(K.mean((y_true - y_pred) ** 2), K.zeros(shape=(1,)))
-
 def train_main(args):
   # Entry point into training from __main__.py
 
   config = get_config(args)
 
+  split_output = False
+  use_multiprocessing=False
+
   train_generator = ImageAndAnnotationGenerator(
       data_path=args.data,
-      split_type="TRAIN",
+      data_class="TRAIN",
       num_people=config.max_people_per_img,
       sample_size=(config.target_size.width, config.target_size.height),
-      short_side_size=config.short_side_size,
-      batch_size=config.batch_size
+      short_side_size=get_or_none(config, "short_side_size"),
+      batch_size=config.batch_size,
+      split_output=split_output,
+      use_multiprocessing=use_multiprocessing
+  )
+  val_generator = ImageAndAnnotationGenerator(
+      data_path=args.data,
+      data_class="VALIDATION",
+      num_people=config.max_people_per_img,
+      sample_size=(config.target_size.width, config.target_size.height),
+      short_side_size=get_or_none(config, "short_side_size"),
+      batch_size=config.batch_size,
+      split_output=split_output,
+      use_multiprocessing=use_multiprocessing
   )
 
   if args.model.is_file():
@@ -217,13 +228,11 @@ def train_main(args):
     model = load_model(str(args.model))
   else:
     log.info("Creating a new model")
-    model = initialize_model(config, config.max_people_per_img)
+    model = initialize_model(config, config.max_people_per_img, split_output)
 
   if config.system.HasField("gpus"):
     log.info("Configuring for %s gpus", config.system.gpus)
     model = multi_gpu_model(model, gpus=config.system.gpus)
-
-  plot_model(model, to_file='model.png')
 
   optimizer = initialize_optimizer(config)
 
@@ -235,17 +244,16 @@ def train_main(args):
 
   model.fit_generator(
       train_generator,
+      validation_data=val_generator,
       epochs=config.epochs,
-      steps_per_epoch=config.steps_per_epoch,
-#      validation_data=val_generator,
-      # validation_steps=config.validation_steps,
- #     workers=get_worker_count(config),
+      workers=get_worker_count(config),
+      max_queue_size=10,
+      use_multiprocessing=use_multiprocessing,
       callbacks = [
-  #      EarlyStopping(),
+        EarlyStopping(patience=5, restore_best_weights=True),
         TerminateOnNaN(),
         ModelCheckpoint(str(args.model), save_best_only=True),
-  #      TensorBoard(update_freq="batch")
-        ]
+        ],
       )
 
   return 0 # Exit Code

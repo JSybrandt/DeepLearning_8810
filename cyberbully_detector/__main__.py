@@ -100,6 +100,32 @@ def parse_args():
   ## Evaluation / Arguments ###################################################
   ## Prediction / Arguments ###################################################
 
+  predict_parser.add_argument("--out_dir", type=Path)
+  checks.append(ArgumentCheck(
+    command="predict",
+    param_name="out_dir",
+    assert_fn=lambda a: a.out_dir is None or a.out_dir.is_dir(),
+    err_msg="Cannot find directory"
+    ))
+
+  predict_parser.add_argument("--write_annotations", action="store_true")
+  checks.append(ArgumentCheck(
+    command="predict",
+    param_name="write_annotations",
+    assert_fn=lambda a: ((not a.write_annotations) \
+                         or a.write_annotations == (a.out_dir is not None)),
+    err_msg="If --write_annotations is set, --out_dir must also be set"
+  ))
+
+  predict_parser.add_argument("--write_images", action="store_true")
+  checks.append(ArgumentCheck(
+    command="predict",
+    param_name="write_images",
+    assert_fn=lambda a: ((not a.write_images) \
+                         or a.write_images == (a.out_dir is not None)),
+    err_msg="If --write_images is set, --out_dir must also be set"
+  ))
+
   args = root_parser.parse_args()
 
   has_error = False
