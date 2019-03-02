@@ -12,14 +12,17 @@ import numpy as np
 
 batch_size=100
 
-data, labels = ImageAndAnnotationGenerator(
+gen = ImageAndAnnotationGenerator(
     "../data",
     "TRAIN",
     num_people=3,
-    dataset="emotic",
+    dataset="bullying",
     sample_size=(299,299),
     short_side_size=500,
-    batch_size=batch_size).__getitem__(0)
+    batch_size=batch_size)
+
+
+data,labels = gen[0]
 
 assert data.shape[0] == batch_size
 joined_labels = np.hstack(labels)
@@ -46,3 +49,7 @@ for idx in range(batch_size):
     img = draw_boxes_on_image(img, annotation)
     img.show()
     break
+
+
+for data, label in gen.generator(1):
+  pass

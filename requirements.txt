@@ -1,3 +1,3 @@
 protobuf
-keras
 Pillow
+tensorflow

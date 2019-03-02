@@ -102,7 +102,6 @@ message Config {
   // Model parameters
   oneof model_type {
     ModelDescription model       = 6;
-    string custom_model = 16;
   }
   optional string class_mode            = 7  [default = "categorical"];
   optional int32 batch_size             = 8  [default = 1];

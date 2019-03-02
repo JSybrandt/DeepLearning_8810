@@ -15,13 +15,16 @@ from PIL import Image, ImageOps
 import random
 from pathlib import Path
 import numpy as np
-import threading
-from keras.utils import Sequence
 from glob import iglob
+import abc
+from tqdm import tqdm
+from multiprocessing import Pool
 
 def _load_image(img_path):
-  assert img_path.is_file()
-  return Image.open(str(img_path)).convert("RGB")
+  if img_path.is_file():
+    return Image.open(str(img_path)).convert("RGB")
+  else:
+    raise RuntimeError("{} is not a file!".format(img_path))
 
 def _resize_by_short_side(img, annotation, short_side_size):
   original_w, original_h = img.size
@@ -137,6 +140,27 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
   raw_data = image_to_np_array(img)
   vector = annotation_to_vector(annotation, num_people)
   return raw_data, vector
+
+
+class Sequence(metaclass=abc.ABCMeta):
+  # 100% BASED ON KERAS SEQUENCE CLASS
+  # Didn't copy, just want the interface
+
+  def __iter__(self):
+    for batch_idx in range(len(self)):
+      yield self[batch_idx]
+
+  @abc.abstractmethod
+  def __len__(self):
+    pass
+
+  @abc.abstractmethod
+  def on_epoch_end(self):
+    pass
+
+  @abc.abstractmethod
+  def __getitem__(self, batch_idx):
+    pass
 
 
 class ImageAndAnnotationGenerator(Sequence):

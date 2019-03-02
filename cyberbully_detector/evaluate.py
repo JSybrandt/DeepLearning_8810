@@ -1,8 +1,6 @@
 import logging as log
-from .data_util import setup_test_data_generator
 from .data_util import get_worker_count
 from .data_util import get_config
-from keras.models import load_model
 import numpy as np
 from sklearn.metrics import classification_report
 
@@ -15,31 +13,31 @@ def evaluate_main(args):
   assert args.model.is_file()
 
   log.info("Loading")
-  model = load_model(str(args.model))
+  # model = load_model(str(args.model))
 
-  test_generator = setup_test_data_generator(args.data, config)
+  # test_generator = setup_test_data_generator(args.data, config)
 
-  num_eval_examples = len(test_generator.filenames)
+  # num_eval_examples = len(test_generator.filenames)
 
-  # Need workers=1 in order to keep order
-  predictions = model.predict_generator(
-      test_generator,
-      steps=num_eval_examples,
-      )
+  # # Need workers=1 in order to keep order
+  # predictions = model.predict_generator(
+      # test_generator,
+      # steps=num_eval_examples,
+      # )
 
-  true_labels = test_generator.classes
+  # true_labels = test_generator.classes
 
-  predicted_labels = [np.argmax(p) for p in predictions]
+  # predicted_labels = [np.argmax(p) for p in predictions]
 
-  label_names = [c for c in test_generator.class_indices]
-  label_names.sort()
-  print(label_names)
+  # label_names = [c for c in test_generator.class_indices]
+  # label_names.sort()
+  # print(label_names)
 
-  assert len(true_labels) == len(predicted_labels)
+  # assert len(true_labels) == len(predicted_labels)
 
-  print(classification_report(true_labels,
-                              predicted_labels,
-                              target_names=label_names))
+  # print(classification_report(true_labels,
+                              # predicted_labels,
+                              # target_names=label_names))
 
 
   return 0 # Exit Code

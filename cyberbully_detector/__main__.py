@@ -97,6 +97,11 @@ def parse_args():
   predict_parser.set_defaults(command="predict")
 
   ## Training Arguments ########################################################
+
+  train_parser.add_argument(
+      "--dataset", type=str,
+      help="If set, only use specific dataset images for training.")
+
   ## Evaluation / Arguments ###################################################
   ## Prediction / Arguments ###################################################
 
