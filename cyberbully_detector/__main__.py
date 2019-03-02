@@ -100,7 +100,8 @@ def parse_args():
 
   train_parser.add_argument(
       "--dataset", type=str,
-      help="If set, only use specific dataset images for training.")
+      help="If set, only use specific dataset images for training.",
+      nargs="*")
 
   ## Evaluation / Arguments ###################################################
   ## Prediction / Arguments ###################################################

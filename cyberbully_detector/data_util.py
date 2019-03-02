@@ -14,15 +14,18 @@ import json
 def get_annotation_db_connection(host="jcloud", db_name="DL_8810"):
   return MongoClient(host)[db_name]
 
-def get_annotation_ids(db, data_class, dataset=None):
-  "If dataset is a string, we will only return annotations from that set "
+def get_annotation_ids(db, data_class, datasets=None):
+  "If datasets is a string, we will only return annotations from that set "
   "matching the class"
   if type(data_class) == int:
     data_class == DataClass.Name(data_class)
 
   query = {"dataClass": data_class}
-  if dataset is not None:
-    query["dataset"] = dataset
+  if datasets is not None:
+    if type(datasets) == str:
+      query["dataset"] = datasets
+    else:
+      query["$or"] = [{"dataset": ds} for ds in datasets]
 
   res = []
   for query_res in db.annotations.find(query, {"_id":1}):

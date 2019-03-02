@@ -91,6 +91,7 @@ enum BullyingClass {
   PUNCHING       = 7;
   SLAPPING       = 8;
   STRANGLING     = 9;
+  NO_BULLYING    = 10;
 }
 
 enum DataClass {
@@ -100,8 +101,7 @@ enum DataClass {
 }
 
 message Annotation {
-  optional bool contains_bullying = 1;
-  optional BullyingClass bullying_class = 2;
+  optional BullyingClass bullying_class = 1;
   repeated Person people = 3;
 
   // This stuff is metadata

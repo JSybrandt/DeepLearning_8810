@@ -18,7 +18,6 @@ import numpy as np
 from glob import iglob
 import abc
 from tqdm import tqdm
-from multiprocessing import Pool
 
 def _load_image(img_path):
   if img_path.is_file():
@@ -171,14 +170,12 @@ class ImageAndAnnotationGenerator(Sequence):
                sample_size,
                batch_size,
                short_side_size=None,
-               dataset=None,
+               datasets=None,
                seed=None,
-               split_output=True,
-               use_multiprocessing=False):
+               split_output=False):
 
     db = get_annotation_db_connection()
-    if not use_multiprocessing:
-      self.db = db
+    self.db = db
     data_path = Path(data_path)
     assert data_path.exists()
     assert num_people >= 0
@@ -191,14 +188,13 @@ class ImageAndAnnotationGenerator(Sequence):
     if seed is not None:
       random.seed(seed)
 
-    self.ids = get_annotation_ids(db, data_class, dataset)
+    self.ids = get_annotation_ids(db, data_class, datasets)
     self.data_path = data_path
     self.num_people = num_people
     self.sample_size = sample_size
     self.batch_size = batch_size
     self.short_side_size = short_side_size
     self.split_output = split_output
-    self.use_multiprocessing = use_multiprocessing
     self.on_epoch_end()
 
   def __len__(self):
@@ -209,12 +205,6 @@ class ImageAndAnnotationGenerator(Sequence):
     random.shuffle(self.ids)
 
   def __getitem__(self, batch_idx):
-    # if using multi-process, we need to make a new db connection
-    if self.use_multiprocessing:
-      db = get_annotation_db_connection()
-    else:
-      db = self.db
-
     start_idx = batch_idx * self.batch_size
     end_idx = min(len(self.ids), start_idx + self.batch_size)
 
@@ -223,7 +213,7 @@ class ImageAndAnnotationGenerator(Sequence):
     labels = np.empty((this_batch_size, annotation_size(self.num_people)))
     for i in range(this_batch_size):
       idx = start_idx + i
-      data[i,:,:,:], labels[i, :] = _process_id(db,
+      data[i,:,:,:], labels[i, :] = _process_id(self.db,
                                                 self.ids[idx],
                                                 self.data_path,
                                                 self.sample_size,

@@ -21,11 +21,17 @@ from tensorflow.layers import MaxPooling2D
 from tensorflow.layers import Dropout
 from tensorflow.layers import Flatten
 from tensorflow.train import MomentumOptimizer
-from tensorflow.losses import mean_squared_error
+from tensorflow.train import AdamOptimizer
+from tensorflow.metrics import accuracy
+from tensorflow.metrics import mean_squared_error as mse_watch
 
 from tensorflow.train import Saver
 import numpy as np
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
+from tempfile import TemporaryDirectory
+
 
 def str_to_activation(activation_str):
   _activations = {
@@ -37,70 +43,9 @@ def str_to_activation(activation_str):
   assert activation_str in _activations
   return _activations[activation_str]
 
-def get_output_layers(num_people, prev_layer):
-  outputs = []
-  # Contains bullying
-  outputs.append(Dense(1,
-                      activation=tf.nn.tanh,
-                      name="contains_bullying")(prev_layer))
-  # Bully Type
-  outputs.append(Dense(enum_size(LB.BullyingClass),
-                      activation=tf.nn.softmax,
-                      name="bullying_class")(prev_layer))
-  # For each person
-  for p_idx in range(num_people):
-    outputs.append(Dense(1,
-                        activation=tf.nn.tanh,
-                        name="exists_{}".format(p_idx)
-                       )(prev_layer))
-    outputs.append(Dense(simple_proto_size(LB.Bbox),
-                        activation=tf.nn.relu,
-                        name="bbox_{}".format(p_idx)
-                       )(prev_layer))
-    outputs.append(Dense(enum_size(LB.EmotionClass),
-                        activation=tf.nn.sigmoid,
-                        name="discrete_emotion_{}".format(p_idx)
-                       )(prev_layer))
-    outputs.append(Dense(simple_proto_size(LB.ContinuousEmotion),
-                        activation=tf.nn.relu,
-                        name="continuous_emotion_{}".format(p_idx)
-                       )(prev_layer))
-    outputs.append(Dense(enum_size(LB.Role),
-                        activation=tf.nn.softmax,
-                        name="role_{}".format(p_idx)
-                       )(prev_layer))
-    outputs.append(Dense(enum_size(LB.Gender),
-                        activation=tf.nn.softmax,
-                        name="gender_{}".format(p_idx)
-                       )(prev_layer))
-    outputs.append(Dense(enum_size(LB.Age),
-                        activation=tf.nn.softmax,
-                        name="age_{}".format(p_idx)
-                       )(prev_layer))
-  return outputs
-
-def add_convolutional(conv_config, current_layer, name):
-  current_layer = Conv2D(
-      conv_config.filters,
-      (conv_config.kernel_size.width, conv_config.kernel_size.height),
-      name=name
-  )(current_layer)
-
-  if name is not None:
-    name += "_pool"
-
-  if conv_config.pool_type == "max":
-    current_layer = MaxPooling2D(
-        (conv_config.pool_size.width, conv_config.pool_size.height),
-        strides=(conv_config.pool_size.width, conv_config.pool_size.height),
-        name=name
-    )(current_layer)
-  else:
-    raise ValueError("Unsupported pool type:" + conv_config.pool_type)
-  return current_layer
-
 def initialize_model(config, num_people):
-  current_layer = data_placeholder = Input(
+  # START WITH INPUT
+  current_layer = input_placeholder = Input(
       shape=(None, # variable batch size
              config.target_size.width,
              config.target_size.height,
@@ -110,21 +55,39 @@ def initialize_model(config, num_people):
   # For each intermediate layer
   for count, layer_conf in enumerate(config.model.layers):
     name = get_or_none(layer_conf, "name")
+
     if layer_conf.HasField("convolutional"):
-      current_layer = add_convolutional(layer_conf.convolutional,
-                                        current_layer,
-                                        name=name)
+      current_layer = Conv2D(
+          layer_conf.convolutional.filters,
+          (layer_conf.convolutional.kernel_size.width,
+           layer_conf.convolutional.kernel_size.height),
+          name=name
+      )(current_layer)
+
+    elif layer_conf.HasField("pool"):
+      if layer_conf.pool.type == "max":
+        current_layer = MaxPooling2D(
+            (layer_conf.pool.size.width, layer_conf.pool.size.height),
+            strides=(layer_conf.pool.size.width, layer_conf.pool.size.height),
+            name=name
+        )(current_layer)
+      else:
+        raise ValueError("Unsupported pool type:" + conv_config.pool_type)
+
     elif layer_conf.HasField("dense"):
       current_layer = Dense(
           layer_conf.dense.units,
           activation=str_to_activation(layer_conf.dense.activation),
           name=name
           )(current_layer)
+
     elif layer_conf.HasField("flatten"):
       current_layer = Flatten(name=name)(current_layer)
+
     elif layer_conf.HasField("dropout"):
       current_layer = Dropout(layer_conf.dropout.rate,
                               name=name)(current_layer)
+
     elif layer_conf.HasField("transfer"):
       if count == 0:
         current_layer = load_transfer_layers(layer_conf, current_layer)
@@ -133,19 +96,7 @@ def initialize_model(config, num_people):
     else:
       raise ValueError("Layer not supported.")
 
-  outputs = get_output_layers(num_people, current_layer)
-  return data_placeholder, outputs
-
-def initialize_optimizer(config):
-  opt_conf = config.model.optimizer
-  if opt_conf.HasField("sgd"):
-    return MomentumOptimizer(
-               learning_rate=opt_conf.sgd.learning_rate,
-               momentum=opt_conf.sgd.momentum,
-               #nesterov=opt_conf.sgd.nesterov
-               )
-  else:
-    raise ValueError("Must supply SGD optimizer.")
+  return input_placeholder, current_layer
 
 def train_main(args):
   # Entry point into training from __main__.py
@@ -155,8 +106,6 @@ def train_main(args):
   if config.system.HasField("gpus"):
     raise ValueError("Multi-gpu support not yet impl")
 
-  split_output = False
-
   train_generator = ImageAndAnnotationGenerator(
       data_path=args.data,
       data_class="TRAIN",
@@ -164,8 +113,7 @@ def train_main(args):
       sample_size=(config.target_size.width, config.target_size.height),
       short_side_size=get_or_none(config, "short_side_size"),
       batch_size=config.batch_size,
-      split_output=split_output,
-      dataset=args.dataset
+      datasets=args.dataset
   )
   val_generator = ImageAndAnnotationGenerator(
       data_path=args.data,
@@ -174,45 +122,111 @@ def train_main(args):
       sample_size=(config.target_size.width, config.target_size.height),
       short_side_size=get_or_none(config, "short_side_size"),
       batch_size=config.batch_size,
-      split_output=split_output,
-      dataset=args.dataset
+      datasets=args.dataset
   )
-
-  #model_io = Saver()
 
   output_size = annotation_size(config.max_people_per_img);
 
-  # setup model info
-  #if args.model.is_file():
-  #  log.info("Loading model to continue training from %s", args.model)
-  #  model_io.restore(sess, args.model)
-  #else:
+  total_classes = enum_size(LB.BullyingClass)
+
   log.info("Creating a new model")
-  data_placeholder, outputs = initialize_model(
-      config, config.max_people_per_img)
-  output = Concatenate(outputs, 1)
+  input_placeholder, prediction = initialize_model(config,
+                                                   config.max_people_per_img)
+
   label_placeholder = Input(shape=(None, output_size),
                             dtype=tf.float32)
 
-  # If nan, don't compute
-  nan_mask = tf.is_nan(label_placeholder)
-  masked_label = tf.boolean_mask(label_placeholder, nan_mask)
-  masked_output = tf.boolean_mask(output, nan_mask)
+  predicted_bullying_type = tf.argmax(prediction)
+  label_bullying_type = tf.argmax(label_placeholder)
 
-  cost = mean_squared_error(masked_label, masked_output);
-  optimizer = initialize_optimizer(config).minimize(cost);
+  # nan_mask = ~tf.is_nan(label_placeholder)
+  # masked_label = tf.boolean_mask(label_placeholder, nan_mask)
+  # masked_output = tf.boolean_mask(prediction, nan_mask)
+  # loss = tf.losses.softmax_cross_entropy(masked_label, masked_output);
+  loss = tf.losses.softmax_cross_entropy(label_placeholder, prediction)
 
-  init = tf.global_variables_initializer()
+  acc_watch, acc_upop = accuracy(label_bullying_type,
+                                 predicted_bullying_type,
+                                 name="acc_watch")
+  acc_init = tf.variables_initializer(
+      var_list=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
+                                 scope="acc_watch"))
 
-  with tf.Session() as sess:
-    sess.run(init)
-    for epoch in range(config.epochs):
-      print(epoch, "/", config.epochs)
-      for batch_data, batch_labels in tqdm(train_generator):
-        sess.run([optimizer, cost], feed_dict={
-          data_placeholder: batch_data,
-          label_placeholder: batch_labels,
-        })
-      seq.on_epoch_end()
+  train_acc = tf.summary.scalar("Training K-class Acc", acc_watch)
+  val_acc = tf.summary.scalar("Validation K-class Acc", acc_watch)
+
+  optimizer = AdamOptimizer(learning_rate=0.001).minimize(loss)
+
+  # BELOW IS THE ACTUAL RUNNING
+
+  tensorboard_dir = TemporaryDirectory()
+  try:
+    # ACTUALLY OPTIMIZE!
+    with tf.Session() as sess:
+      print("Follow along with tensorboard:", tensorboard_dir.name)
+      summary_writer = tf.summary.FileWriter(tensorboard_dir.name, sess.graph)
+
+      sess.run(tf.global_variables_initializer())
+      sess.run(tf.local_variables_initializer())
+
+      # Go super fast!
+      with ThreadPoolExecutor(max_workers=get_worker_count(config)) as tp_exec:
+
+        for epoch in range(config.epochs):
+          # BEGIN TRAINING LOOP
+          print("\n"*3)
+          print("Training: {}/{}".format(epoch, config.epochs))
+          overall_loss = 0
+          sess.run(acc_init)  # clear accumulator for accuracy
+
+          # process batches in parallel
+          batch_futures = [tp_exec.submit(train_generator.__getitem__, i)
+                           for i in range(len(train_generator))]
+          batch_pbar = tqdm(as_completed(batch_futures),
+                            total=len(train_generator))
+          for count, batch_future in enumerate(batch_pbar):
+            batch_data, batch_labels = batch_future.result()
+            data = {input_placeholder: batch_data,
+                    label_placeholder: batch_labels}
+
+            _, l, _ = sess.run([optimizer,
+                                loss,
+                                acc_upop],
+                               feed_dict=data)
+            acc = sess.run(acc_watch)
+
+            overall_loss += l
+            per_batch_loss = overall_loss / (count+1)
+            batch_pbar.set_description(
+                "Loss {:0.5f} - Acc {:0.3f}".format(per_batch_loss, acc))
+
+          # End of batch, log to tboard
+          summary_writer.add_summary(sess.run(train_acc), epoch)
+          train_generator.on_epoch_end()
+
+          # VALIDATION LOOP
+          print("Validation: {}/{}".format(epoch, config.epochs))
+          sess.run(acc_init)
+          overall_loss = 0
+          batch_futures = [tp_exec.submit(val_generator.__getitem__, i)
+                           for i in range(len(val_generator))]
+          batch_pbar = tqdm(as_completed(batch_futures),
+                            total=len(val_generator))
+          for batch_future in batch_pbar:
+            batch_data, batch_labels = batch_future.result()
+            data = {input_placeholder: batch_data,
+                   label_placeholder: batch_labels}
+            l, _ = sess.run([loss, acc_upop], feed_dict=data)
+            overall_loss += l
+          print("Loss:", overall_loss / len(val_generator), "Acc:", sess.run(acc_watch))
+          summary_writer.add_summary(sess.run(val_acc), epoch)
+          val_generator.on_epoch_end()
+
+  except Exception as e:
+    raise e
+  finally:
+    print("Cleaning dirty tmp")
+    tensorboard_dir.cleanup()
+
 
   return 0 # Exit Code

@@ -114,7 +114,6 @@ def bool_to_vec(bool_val):
 
 def annotation_size(num_people):
   return sum([
-    1,
     enum_size(LB.BullyingClass),
     person_size() * num_people
   ])
@@ -130,7 +129,6 @@ def annotation_to_vector(annotation, num_people):
   shuffle(people)
 
   return np.concatenate([
-    bool_to_vec(get_or_none(annotation, "contains_bullying")),
     enum_to_vec(get_or_none(annotation, "bullying_class"), LB.BullyingClass),
   ] + [person_to_vec(p) for p in people])
 
@@ -139,10 +137,6 @@ def split_batch(vectors):
   matrix = np.vstack(vectors)
   outputs = []
   col_idx = 0
-
-  size=1
-  outputs.append(matrix[:,col_idx:col_idx+size])
-  col_idx+=size
 
   size=enum_size(LB.BullyingClass)
   outputs.append(matrix[:,col_idx:col_idx+size])
@@ -252,10 +246,6 @@ def vector_to_annotation(vector):
   annotation = Annotation()
 
   idx = 0
-  tmp = val_to_bool(vector[idx])
-  if tmp is not None:
-    annotation.contains_bullying = tmp
-  idx += 1
 
   num_vals = enum_size(LB.BullyingClass)
   tmp = val_to_enum(vector[idx:idx+num_vals])

@@ -32,8 +32,10 @@ message ModelDescription {
   message ConvLayer {
     optional int32 filters     = 1 [default = 128];
     optional Size kernel_size  = 2;
-    optional Size pool_size    = 3;
-    optional string pool_type  = 4 [default = "max"];
+  }
+  message PoolLayer {
+    optional Size size =    1;
+    optional string type  = 2 [default = "max"];
   }
   message DenseLayer {
     optional int32 units       = 1;
@@ -57,6 +59,7 @@ message ModelDescription {
       FlattenLayer flatten     = 3;
       DropoutLayer dropout     = 4;
       TransferLayer transfer   = 5;
+      PoolLayer pool           = 6;
     }
     optional string name       = 100;
   }
