@@ -2,7 +2,6 @@ import logging as log
 from .data_util import get_worker_count
 from .data_util import get_config
 import numpy as np
-from sklearn.metrics import classification_report
 
 def evaluate_main(args):
   # Entry point into eval from __main__.py
