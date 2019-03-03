@@ -115,3 +115,4 @@ data/
 # tensorboard logs
 logs/
 predictions/
+models/

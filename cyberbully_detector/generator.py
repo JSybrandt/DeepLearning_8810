@@ -131,10 +131,10 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
   img, annotation = _resize_by_short_side(img, annotation, short_side_size)
   img, annotation = _crop_rand_sample(img, annotation, sample_size)
 
-  # if random.random() < 0.5:
-    # img, annotation = _horizontal_flip(img, annotation)
-  # if random.random() < 0.5:
-    # img, annotation = _vertical_flip(img, annotation)
+  if random.random() < 0.5:
+    img, annotation = _horizontal_flip(img, annotation)
+  if random.random() < 0.5:
+    img, annotation = _vertical_flip(img, annotation)
 
   zero_one_scale_people(img, annotation)
 
@@ -142,6 +142,22 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
   vector = annotation_to_vector(annotation, num_people)
   contains_bullying = 0 if annotation.bullying_class == LB.NO_BULLYING else 1
   return raw_data, vector, contains_bullying
+
+def proc_img_path(path, short_side_size, sample_size, callbacks=[], flips=False):
+  if short_side_size is None:
+    short_side_size = max(sample_size)
+  assert short_side_size >= max(sample_size)
+  img = _load_image(path)
+  img, _ = _resize_by_short_side(img, None, short_side_size)
+  img, _ = _crop_rand_sample(img, None, sample_size)
+  if flips:
+    if random.random() < 0.5:
+      img, _ = _horizontal_flip(img, None)
+    if random.random() < 0.5:
+      img, _ = _vertical_flip(img, None)
+  for callback in callbacks:
+    callback(path, img)
+  return image_to_np_array(img)
 
 
 class Sequence(metaclass=abc.ABCMeta):
@@ -272,14 +288,10 @@ class FileSystemImageGenerator(Sequence):
     data = np.empty((this_batch_size, self.sample_size[0], self.sample_size[1], 3))
     for i in range(this_batch_size):
       idx = start_idx + i
-      data[i,:,:,:] = self._proc_img_path(self.files[idx])
+      data[i,:,:,:] = proc_img_path(files[idx],
+                                     self.short_side_size,
+                                     self.sample_size,
+                                     self.callbacks)
 
     return data
 
-  def _proc_img_path(self, path):
-    img = _load_image(path)
-    img, _ = _resize_by_short_side(img, None, self.short_side_size)
-    img, _ = _crop_rand_sample(img, None, self.sample_size)
-    for callback in self.img_callbacks:
-      callback(path, img)
-    return image_to_np_array(img)

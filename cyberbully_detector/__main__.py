@@ -45,13 +45,13 @@ def parse_args():
 
   root_parser.add_argument("model",
                            type=Path,
-                           help="Path of *.h5 to save/load model")
+                           help="Dir to save/load model")
   checks.append(ArgumentCheck(
     command="all",
     param_name="model",
-    assert_fn=lambda a: (is_safe_to_write_file(a.model, True)
-                         and a.model.suffix == ".h5"),
-    err_msg="File path must be writable *.h5."
+    assert_fn=lambda a: ((not a.model.exists() and a.model.parent.is_dir())\
+                         or a.model.is_dir()),
+    err_msg="Must be able to create a directory here."
   ))
 
   root_parser.add_argument("-v", "--verbose", action="store_true")
@@ -131,6 +131,15 @@ def parse_args():
                          or a.write_images == (a.out_dir is not None)),
     err_msg="If --write_images is set, --out_dir must also be set"
   ))
+
+  predict_parser.add_argument("file_path", type=Path)
+  checks.append(ArgumentCheck(
+    command="predict",
+    param_name="file_path",
+    assert_fn=lambda a: a.file_path.is_file(),
+    err_msg="Must supply valid path."
+  ))
+
 
   args = root_parser.parse_args()
 

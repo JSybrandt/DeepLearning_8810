@@ -188,7 +188,7 @@ def val_to_bool(val):
     return None
   return val > 0.5
 
-def val_to_enum(vals):
+def vec_to_enum(vals):
   potential_idx = np.argmax(vals)
   if vals[potential_idx] > 0.5:
     return potential_idx+1
@@ -225,19 +225,19 @@ def vector_to_person(vector):
 
   size = enum_size(LB.Role)
   vec = vector[idx:idx+size] ; idx += size
-  tmp = val_to_enum(vec)
+  tmp = vec_to_enum(vec)
   if tmp is not None:
     person.role = tmp
 
   size = enum_size(LB.Gender)
   vec = vector[idx:idx+size] ; idx += size
-  tmp = val_to_enum(vec)
+  tmp = vec_to_enum(vec)
   if tmp is not None:
     person.gender = tmp
 
   size = enum_size(LB.Age)
   vec = vector[idx:idx+size] ; idx += size
-  tmp = val_to_enum(vec)
+  tmp = vec_to_enum(vec)
   if tmp is not None:
     person.age = tmp
   return person
@@ -249,7 +249,7 @@ def vector_to_annotation(vector):
   idx = 0
 
   num_vals = enum_size(LB.BullyingClass)
-  tmp = val_to_enum(vector[idx:idx+num_vals])
+  tmp = vec_to_enum(vector[idx:idx+num_vals])
   if tmp is not None:
     annotation.bullying_class = tmp
   idx += num_vals

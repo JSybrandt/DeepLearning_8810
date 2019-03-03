@@ -50,6 +50,7 @@ def initialize_model(config, num_people):
              config.target_size.width,
              config.target_size.height,
              colormode_to_dim(config.color_mode)),
+      name="input",
       dtype=tf.float32)
 
   # For each intermediate layer
@@ -186,10 +187,12 @@ def train_main(args):
   # BELOW IS THE ACTUAL RUNNING
 
   tensorboard_dir = TemporaryDirectory()
+  saver = tf.train.Saver()
+
   try:
     # ACTUALLY OPTIMIZE!
     with tf.Session() as sess:
-      print("Follow along with tensorboard:", tensorboard_dir.name)
+      log.info("Follow along with tensorboard: " + tensorboard_dir.name)
       summary_writer = tf.summary.FileWriter(tensorboard_dir.name, sess.graph)
 
       sess.run(tf.global_variables_initializer())
@@ -249,12 +252,14 @@ def train_main(args):
                     contains_bullying_placeholder: batch_contains_bullying}
             l = sess.run([loss, k_acc_up, b_acc_up], feed_dict=data)[0]
             overall_loss += l
-          print("Loss:", overall_loss / len(val_generator),
-                "2-Acc:", sess.run(b_acc_watch),
-                "K-Acc:", sess.run(k_acc_watch))
+          log.info("Loss: %s 2-Acc %s K-Acc %s",  overall_loss / len(val_generator),
+                                                  sess.run(b_acc_watch),
+                                                  sess.run(k_acc_watch))
           summary_writer.add_summary(sess.run(val_acc_k), epoch)
           summary_writer.add_summary(sess.run(val_acc_b), epoch)
           val_generator.on_epoch_end()
+
+      saver.save(sess, str(args.model.joinpath("model")))
 
   except Exception as e:
     raise e
