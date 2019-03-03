@@ -18,6 +18,7 @@ import numpy as np
 from glob import iglob
 import abc
 from tqdm import tqdm
+from . import labels_pb2 as LB
 
 def _load_image(img_path):
   if img_path.is_file():
@@ -129,16 +130,18 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
 
   img, annotation = _resize_by_short_side(img, annotation, short_side_size)
   img, annotation = _crop_rand_sample(img, annotation, sample_size)
-  if random.random() < 0.5:
-    img, annotation = _horizontal_flip(img, annotation)
-  if random.random() < 0.5:
-    img, annotation = _vertical_flip(img, annotation)
+
+  # if random.random() < 0.5:
+    # img, annotation = _horizontal_flip(img, annotation)
+  # if random.random() < 0.5:
+    # img, annotation = _vertical_flip(img, annotation)
 
   zero_one_scale_people(img, annotation)
 
   raw_data = image_to_np_array(img)
   vector = annotation_to_vector(annotation, num_people)
-  return raw_data, vector
+  contains_bullying = 0 if annotation.bullying_class == LB.NO_BULLYING else 1
+  return raw_data, vector, contains_bullying
 
 
 class Sequence(metaclass=abc.ABCMeta):
@@ -171,8 +174,7 @@ class ImageAndAnnotationGenerator(Sequence):
                batch_size,
                short_side_size=None,
                datasets=None,
-               seed=None,
-               split_output=False):
+               seed=None):
 
     db = get_annotation_db_connection()
     self.db = db
@@ -194,7 +196,6 @@ class ImageAndAnnotationGenerator(Sequence):
     self.sample_size = sample_size
     self.batch_size = batch_size
     self.short_side_size = short_side_size
-    self.split_output = split_output
     self.on_epoch_end()
 
   def __len__(self):
@@ -210,19 +211,18 @@ class ImageAndAnnotationGenerator(Sequence):
 
     this_batch_size = end_idx - start_idx
     data = np.empty((this_batch_size, self.sample_size[0], self.sample_size[1], 3))
-    labels = np.empty((this_batch_size, annotation_size(self.num_people)))
+    bully_class = np.empty((this_batch_size, annotation_size(self.num_people)))
+    contains_bullying = np.empty((this_batch_size, 1))
     for i in range(this_batch_size):
       idx = start_idx + i
-      data[i,:,:,:], labels[i, :] = _process_id(self.db,
-                                                self.ids[idx],
-                                                self.data_path,
-                                                self.sample_size,
-                                                self.short_side_size,
-                                                self.num_people)
-    if self.split_output:
-      return data, split_batch(labels)
-    else:
-      return data, labels
+      data[i,:,:,:], bully_class[i, :], contains_bullying[i, :] = _process_id(
+          self.db,
+          self.ids[idx],
+          self.data_path,
+          self.sample_size,
+          self.short_side_size,
+          self.num_people)
+    return data, bully_class, contains_bullying
 
 
 class FileSystemImageGenerator(Sequence):

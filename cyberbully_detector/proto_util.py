@@ -37,6 +37,7 @@ def enum_size(enum_type):
   return max(enum_type.values())
 
 def enum_to_vec(enum_val, enum_type):
+  assert enum_val is not None
   vals = np.empty(enum_size(enum_type))
   if enum_val is None:
     vals[:] = np.nan

@@ -130,32 +130,58 @@ def train_main(args):
   total_classes = enum_size(LB.BullyingClass)
 
   log.info("Creating a new model")
-  input_placeholder, prediction = initialize_model(config,
-                                                   config.max_people_per_img)
+  input_placeholder, latent_feats = initialize_model(config,
+                                                     config.max_people_per_img)
 
-  label_placeholder = Input(shape=(None, output_size),
+  # CUSTOM END LEVEL
+
+  predicted_class_dist = Dense(total_classes,
+                               activation=tf.nn.softmax,
+                               name="predicted_class_dist"
+                              )(latent_feats)
+  predicted_class = tf.argmax(predicted_class_dist, axis=1)
+  predicted_contains_bullying = Dense(1,
+                                      activation=tf.nn.sigmoid,
+                                      name="predicted_contains_bullying"
+                                     )(latent_feats)
+
+  bully_class_placeholder = Input(shape=(None, total_classes),
                             dtype=tf.float32)
+  label_class = tf.argmax(bully_class_placeholder, axis=1)
+  contains_bullying_placeholder = Input(shape=(None, 1),
+                                        dtype=tf.float32)
 
-  predicted_bullying_type = tf.argmax(prediction)
-  label_bullying_type = tf.argmax(label_placeholder)
-
-  # nan_mask = ~tf.is_nan(label_placeholder)
-  # masked_label = tf.boolean_mask(label_placeholder, nan_mask)
+  # nan_mask = ~tf.is_nan(bully_class_placeholder)
+  # masked_label = tf.boolean_mask(bully_class_placeholder, nan_mask)
   # masked_output = tf.boolean_mask(prediction, nan_mask)
   # loss = tf.losses.softmax_cross_entropy(masked_label, masked_output);
-  loss = tf.losses.softmax_cross_entropy(label_placeholder, prediction)
 
-  acc_watch, acc_upop = accuracy(label_bullying_type,
-                                 predicted_bullying_type,
-                                 name="acc_watch")
-  acc_init = tf.variables_initializer(
+  k_type_loss = tf.losses.softmax_cross_entropy(bully_class_placeholder, predicted_class_dist)
+  two_type_loss = tf.losses.log_loss(contains_bullying_placeholder, predicted_contains_bullying)
+  loss = tf.add(k_type_loss, two_type_loss)
+
+  k_acc_watch, k_acc_up = accuracy(label_class,
+                                   tf.argmax(predicted_class_dist, 1),
+                                   name="k_acc_watch")
+  b_acc_watch, b_acc_up = accuracy(contains_bullying_placeholder,
+                                   tf.round(predicted_contains_bullying),
+                                   name="b_acc_watch")
+
+  k_acc_init = tf.variables_initializer(
       var_list=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
-                                 scope="acc_watch"))
+                                 scope="k_acc_watch"))
+  b_acc_init = tf.variables_initializer(
+      var_list=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
+                                 scope="b_acc_watch"))
 
-  train_acc = tf.summary.scalar("Training K-class Acc", acc_watch)
-  val_acc = tf.summary.scalar("Validation K-class Acc", acc_watch)
+  train_acc_k = tf.summary.scalar("Training K-class Acc", k_acc_watch)
+  val_acc_k = tf.summary.scalar("Validation K-class Acc", k_acc_watch)
+  train_acc_b = tf.summary.scalar("Training 2-class Acc", b_acc_watch)
+  val_acc_b = tf.summary.scalar("Validation 2-class Acc", b_acc_watch)
 
-  optimizer = AdamOptimizer(learning_rate=0.001).minimize(loss)
+  # optimizer = AdamOptimizer(learning_rate=0.01).minimize(loss)
+  # optimizer = tf.train.MomentumOptimizer(learning_rate=0.001, momentum=0.5).minimize(loss)
+  optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(loss)
 
   # BELOW IS THE ACTUAL RUNNING
 
@@ -177,7 +203,8 @@ def train_main(args):
           print("\n"*3)
           print("Training: {}/{}".format(epoch, config.epochs))
           overall_loss = 0
-          sess.run(acc_init)  # clear accumulator for accuracy
+          sess.run(k_acc_init)  # clear accumulator for accuracy
+          sess.run(b_acc_init)  # clear accumulator for accuracy
 
           # process batches in parallel
           batch_futures = [tp_exec.submit(train_generator.__getitem__, i)
@@ -185,41 +212,48 @@ def train_main(args):
           batch_pbar = tqdm(as_completed(batch_futures),
                             total=len(train_generator))
           for count, batch_future in enumerate(batch_pbar):
-            batch_data, batch_labels = batch_future.result()
+            batch_data, batch_bully_class, batch_contains_bullying = batch_future.result()
             data = {input_placeholder: batch_data,
-                    label_placeholder: batch_labels}
+                    bully_class_placeholder: batch_bully_class,
+                    contains_bullying_placeholder: batch_contains_bullying}
 
-            _, l, _ = sess.run([optimizer,
-                                loss,
-                                acc_upop],
-                               feed_dict=data)
-            acc = sess.run(acc_watch)
+            l = sess.run([loss, optimizer,
+                          k_acc_up,
+                          b_acc_up],
+                         feed_dict=data)[0]
+            k_acc, b_acc = sess.run([k_acc_watch, b_acc_watch])
 
             overall_loss += l
             per_batch_loss = overall_loss / (count+1)
             batch_pbar.set_description(
-                "Loss {:0.5f} - Acc {:0.3f}".format(per_batch_loss, acc))
+                "Loss {:0.5f} - 2-Acc {:0.3f} - K-Acc {:0.3f}".format(per_batch_loss, b_acc, k_acc))
 
           # End of batch, log to tboard
-          summary_writer.add_summary(sess.run(train_acc), epoch)
+          summary_writer.add_summary(sess.run(train_acc_k), epoch)
+          summary_writer.add_summary(sess.run(train_acc_b), epoch)
           train_generator.on_epoch_end()
 
           # VALIDATION LOOP
           print("Validation: {}/{}".format(epoch, config.epochs))
-          sess.run(acc_init)
+          sess.run(k_acc_init)
+          sess.run(b_acc_init)
           overall_loss = 0
           batch_futures = [tp_exec.submit(val_generator.__getitem__, i)
                            for i in range(len(val_generator))]
           batch_pbar = tqdm(as_completed(batch_futures),
                             total=len(val_generator))
           for batch_future in batch_pbar:
-            batch_data, batch_labels = batch_future.result()
+            batch_data, batch_bully_class, batch_contains_bullying = batch_future.result()
             data = {input_placeholder: batch_data,
-                   label_placeholder: batch_labels}
-            l, _ = sess.run([loss, acc_upop], feed_dict=data)
+                    bully_class_placeholder: batch_bully_class,
+                    contains_bullying_placeholder: batch_contains_bullying}
+            l = sess.run([loss, k_acc_up, b_acc_up], feed_dict=data)[0]
             overall_loss += l
-          print("Loss:", overall_loss / len(val_generator), "Acc:", sess.run(acc_watch))
-          summary_writer.add_summary(sess.run(val_acc), epoch)
+          print("Loss:", overall_loss / len(val_generator),
+                "2-Acc:", sess.run(b_acc_watch),
+                "K-Acc:", sess.run(k_acc_watch))
+          summary_writer.add_summary(sess.run(val_acc_k), epoch)
+          summary_writer.add_summary(sess.run(val_acc_b), epoch)
           val_generator.on_epoch_end()
 
   except Exception as e:
