@@ -138,10 +138,10 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
 
   zero_one_scale_people(img, annotation)
 
-  raw_data = image_to_np_array(img)
+  arr = np.array(img, dtype=np.float32)
   vector = annotation_to_vector(annotation, num_people)
   contains_bullying = 0 if annotation.bullying_class == LB.NO_BULLYING else 1
-  return raw_data, vector, contains_bullying
+  return arr, vector, contains_bullying
 
 def proc_img_path(path, short_side_size, sample_size, callbacks=[], flips=False):
   if short_side_size is None:
@@ -157,7 +157,8 @@ def proc_img_path(path, short_side_size, sample_size, callbacks=[], flips=False)
       img, _ = _vertical_flip(img, None)
   for callback in callbacks:
     callback(path, img)
-  return image_to_np_array(img)
+  arr = np.array(img, dtype=np.float32)
+  return arr
 
 
 class Sequence(metaclass=abc.ABCMeta):
@@ -190,7 +191,8 @@ class ImageAndAnnotationGenerator(Sequence):
                batch_size,
                short_side_size=None,
                datasets=None,
-               seed=None):
+               seed=None,
+               extra_preproc_func=None):
 
     db = get_annotation_db_connection()
     self.db = db
@@ -212,6 +214,7 @@ class ImageAndAnnotationGenerator(Sequence):
     self.sample_size = sample_size
     self.batch_size = batch_size
     self.short_side_size = short_side_size
+    self.extra_preproc_func = extra_preproc_func
     self.on_epoch_end()
 
   def __len__(self):
@@ -238,6 +241,7 @@ class ImageAndAnnotationGenerator(Sequence):
           self.sample_size,
           self.short_side_size,
           self.num_people)
+    data = self.extra_preproc_func(data)
     return data, bully_class, contains_bullying
 
 
@@ -248,7 +252,8 @@ class FileSystemImageGenerator(Sequence):
                batch_size,
                short_side_size=None,
                seed=None,
-               img_callbacks=[]):
+               img_callbacks=[],
+               extra_preproc_func=None):
 
     assert len(sample_size) == 2
     assert min(sample_size) > 0
@@ -264,6 +269,7 @@ class FileSystemImageGenerator(Sequence):
       random.seed(seed)
 
     self.img_callbacks = img_callbacks
+    self.extra_preproc_func = extra_preproc_func
 
     image_extensions = set([".png", ".jpg", ".jpeg"])
     files = iglob(str(data_path)+"/**", recursive=True)
@@ -293,5 +299,6 @@ class FileSystemImageGenerator(Sequence):
                                      self.sample_size,
                                      self.callbacks)
 
+    data = selfaextra_preproc_func(data)
     return data
 

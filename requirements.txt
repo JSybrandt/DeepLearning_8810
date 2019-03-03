@@ -4,3 +4,5 @@ tensorflow-gpu==1.12.0
 tqdm
 numpy
 pymongo
+cython
+tensornets

@@ -31,6 +31,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 from tempfile import TemporaryDirectory
+import tensornets as nets
 
 
 def str_to_activation(activation_str):
@@ -43,17 +44,15 @@ def str_to_activation(activation_str):
   assert activation_str in _activations
   return _activations[activation_str]
 
-def initialize_model(config, num_people):
-  # START WITH INPUT
-  current_layer = input_placeholder = Input(
-      shape=(None, # variable batch size
-             config.target_size.width,
-             config.target_size.height,
-             colormode_to_dim(config.color_mode)),
-      name="input",
-      dtype=tf.float32)
+def str_to_transfer_model(model_str):
+  _models = {
+      "vgg19" : nets.VGG19,
+  }
+  assert model_str in _models
+  return _models[model_str]
 
-  # For each intermediate layer
+def initialize_model(config, num_people, current_layer):
+  transfer_model = None
   for count, layer_conf in enumerate(config.model.layers):
     name = get_or_none(layer_conf, "name")
 
@@ -62,7 +61,8 @@ def initialize_model(config, num_people):
           layer_conf.convolutional.filters,
           (layer_conf.convolutional.kernel_size.width,
            layer_conf.convolutional.kernel_size.height),
-          name=name
+          name=name,
+          data_format="channels_first"
       )(current_layer)
 
     elif layer_conf.HasField("pool"):
@@ -88,16 +88,16 @@ def initialize_model(config, num_people):
     elif layer_conf.HasField("dropout"):
       current_layer = Dropout(layer_conf.dropout.rate,
                               name=name)(current_layer)
-
     elif layer_conf.HasField("transfer"):
       if count == 0:
-        current_layer = load_transfer_layers(layer_conf, current_layer)
+        transfer_model = current_layer = str_to_transfer_model(
+            layer_conf.name)(current_layer, is_training=False, stem=True)
       else:
-        raise ValueError("Transfer layer must be first.")
+        ValueError("Transfer layer must occur first.")
     else:
-      raise ValueError("Layer not supported.")
+      ValueError("Unsupported layer.")
 
-  return input_placeholder, current_layer
+  return current_layer, transfer_model
 
 def train_main(args):
   # Entry point into training from __main__.py
@@ -107,33 +107,23 @@ def train_main(args):
   if config.system.HasField("gpus"):
     raise ValueError("Multi-gpu support not yet impl")
 
-  train_generator = ImageAndAnnotationGenerator(
-      data_path=args.data,
-      data_class="TRAIN",
-      num_people=config.max_people_per_img,
-      sample_size=(config.target_size.width, config.target_size.height),
-      short_side_size=get_or_none(config, "short_side_size"),
-      batch_size=config.batch_size,
-      datasets=args.dataset
-  )
-  val_generator = ImageAndAnnotationGenerator(
-      data_path=args.data,
-      data_class="VALIDATION",
-      num_people=config.max_people_per_img,
-      sample_size=(config.target_size.width, config.target_size.height),
-      short_side_size=get_or_none(config, "short_side_size"),
-      batch_size=config.batch_size,
-      datasets=args.dataset
-  )
 
   output_size = annotation_size(config.max_people_per_img);
 
   total_classes = enum_size(LB.BullyingClass)
 
-  log.info("Creating a new model")
-  input_placeholder, latent_feats = initialize_model(config,
-                                                     config.max_people_per_img)
+  current_layer = input_placeholder = Input(
+      shape=(None, # variable batch size
+             config.target_size.width,
+             config.target_size.height,
+             colormode_to_dim(config.color_mode)),
+      name="input",
+      dtype=tf.float32)
 
+  log.info("Creating a new model")
+  latent_feats, transfer_model = initialize_model(config,
+                                                  config.max_people_per_img,
+                                                  current_layer)
   # CUSTOM END LEVEL
 
   predicted_class_dist = Dense(total_classes,
@@ -175,10 +165,10 @@ def train_main(args):
       var_list=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
                                  scope="b_acc_watch"))
 
-  train_acc_k = tf.summary.scalar("Training K-class Acc", k_acc_watch)
-  val_acc_k = tf.summary.scalar("Validation K-class Acc", k_acc_watch)
-  train_acc_b = tf.summary.scalar("Training 2-class Acc", b_acc_watch)
-  val_acc_b = tf.summary.scalar("Validation 2-class Acc", b_acc_watch)
+  train_acc_k = tf.summary.scalar("Training_K-class_Acc", k_acc_watch)
+  val_acc_k = tf.summary.scalar("Validation_K-class_Acc", k_acc_watch)
+  train_acc_b = tf.summary.scalar("Training_2-class_Acc", b_acc_watch)
+  val_acc_b = tf.summary.scalar("Validation_2-class_Acc", b_acc_watch)
 
   # optimizer = AdamOptimizer(learning_rate=0.01).minimize(loss)
   # optimizer = tf.train.MomentumOptimizer(learning_rate=0.001, momentum=0.5).minimize(loss)
@@ -186,12 +176,36 @@ def train_main(args):
 
   # BELOW IS THE ACTUAL RUNNING
 
+  train_generator = ImageAndAnnotationGenerator(
+      data_path=args.data,
+      data_class="TRAIN",
+      num_people=config.max_people_per_img,
+      sample_size=(config.target_size.width, config.target_size.height),
+      short_side_size=get_or_none(config, "short_side_size"),
+      batch_size=config.batch_size,
+      datasets=args.dataset,
+      extra_preproc_func=None if transfer_model is None else transfer_model.preprocess
+  )
+  val_generator = ImageAndAnnotationGenerator(
+      data_path=args.data,
+      data_class="VALIDATION",
+      num_people=config.max_people_per_img,
+      sample_size=(config.target_size.width, config.target_size.height),
+      short_side_size=get_or_none(config, "short_side_size"),
+      batch_size=config.batch_size,
+      datasets=args.dataset,
+      extra_preproc_func=None if transfer_model is None else transfer_model.preprocess
+  )
+
   tensorboard_dir = TemporaryDirectory()
   saver = tf.train.Saver()
 
   try:
-    # ACTUALLY OPTIMIZE!
     with tf.Session() as sess:
+      if transfer_model is not None:
+        sess.run(transfer_model.pretrained())
+
+    # ACTUALLY OPTIMIZE!
       log.info("Follow along with tensorboard: " + tensorboard_dir.name)
       summary_writer = tf.summary.FileWriter(tensorboard_dir.name, sess.graph)
 
