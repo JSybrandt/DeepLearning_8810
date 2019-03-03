@@ -31,7 +31,7 @@ from concurrent.futures import as_completed
 from tempfile import TemporaryDirectory
 import tensornets as nets
 
-TRAINING_SCOPE="thawed"
+TRAINING_SCOPE="trainable_vars"
 
 
 def str_to_activation(activation_str):
@@ -86,60 +86,49 @@ def str_to_transfer_model(model_str):
   return _models[model_str]
 
 def initialize_model(config, num_people, current_layer):
-  transfer_model = None
   for count, layer_conf in enumerate(config.model.layers):
     name = get_or_none(layer_conf, "name")
 
     if layer_conf.HasField("convolutional"):
-      with tf.variable_scope(TRAINING_SCOPE):
-        current_layer = Conv2D(
-            layer_conf.convolutional.filters,
-            (layer_conf.convolutional.kernel_size.width,
-             layer_conf.convolutional.kernel_size.height),
-            name=name,
-            data_format="channels_first"
-        )(current_layer)
+      current_layer = Conv2D(
+          layer_conf.convolutional.filters,
+          (layer_conf.convolutional.kernel_size.width,
+           layer_conf.convolutional.kernel_size.height),
+          name=name,
+          data_format="channels_first"
+      )(current_layer)
 
     elif layer_conf.HasField("pool"):
-      with tf.variable_scope(TRAINING_SCOPE):
-        if layer_conf.pool.type == "max":
-          current_layer = MaxPooling2D(
-              (layer_conf.pool.size.width, layer_conf.pool.size.height),
-              strides=(layer_conf.pool.size.width, layer_conf.pool.size.height),
-              name=name
-          )(current_layer)
-        else:
-          raise ValueError("Unsupported pool type:" + conv_config.pool_type)
+      if layer_conf.pool.type == "max":
+        current_layer = MaxPooling2D(
+            (layer_conf.pool.size.width, layer_conf.pool.size.height),
+            strides=(layer_conf.pool.size.width, layer_conf.pool.size.height),
+            name=name
+        )(current_layer)
+      else:
+        raise ValueError("Unsupported pool type:" + conv_config.pool_type)
 
     elif layer_conf.HasField("dense"):
-      with tf.variable_scope(TRAINING_SCOPE):
-        current_layer = Dense(
-            layer_conf.dense.units,
-            activation=str_to_activation(layer_conf.dense.activation),
-            name=name
-            )(current_layer)
+      current_layer = Dense(
+          layer_conf.dense.units,
+          activation=str_to_activation(layer_conf.dense.activation),
+          name=name
+          )(current_layer)
 
     elif layer_conf.HasField("flatten"):
-      with tf.variable_scope(TRAINING_SCOPE):
-         current_layer = Flatten(name=name)(current_layer)
+      current_layer = Flatten(name=name)(current_layer)
 
     elif layer_conf.HasField("dropout"):
-      with tf.variable_scope(TRAINING_SCOPE):
-        current_layer = Dropout(layer_conf.dropout.rate,
-                                name=name)(current_layer)
+      current_layer = Dropout(layer_conf.dropout.rate,
+                              name=name)(current_layer)
     elif layer_conf.HasField("transfer"):
-      with tf.variable_scope("transfer"):
-        if count == 0:
-          transfer_model = current_layer = str_to_transfer_model(
-              layer_conf.name)(current_layer,
-                               is_training=True,
-                               stem=True)
-        else:
+        if count != 0:
           ValueError("Transfer layer must occur first.")
+          # We're handling this outside now
     else:
       ValueError("Unsupported layer.")
 
-  return current_layer, transfer_model
+  return current_layer
 
 def train_main(args):
   # Entry point into training from __main__.py
@@ -165,18 +154,22 @@ def train_main(args):
       dtype=tf.float32)
 
   log.info("Creating a new model")
-  prediction, transfer_model = initialize_model(config,
-                                                  config.max_people_per_img,
-                                                  current_layer)
-  # CUSTOM END LEVEL
+
+  if config.model.layers[0].HasField("transfer"):
+    layer_conf = config.model.layers[0]
+    with tf.variable_scope("transfer"):
+      transfer_model = current_layer = str_to_transfer_model(
+          layer_conf.name)(current_layer,
+                           is_training=True,
+                           stem=True)
+
+  with tf.variable_scope(TRAINING_SCOPE):
+    prediction = initialize_model(config,
+                                  config.max_people_per_img,
+                                  current_layer)
 
   bully_one_hot_placeholder = Input(shape=(None, total_classes),
                             dtype=tf.float32)
-
-  # nan_mask = ~tf.is_nan(bully_one_hot_placeholder)
-  # masked_label = tf.boolean_mask(bully_one_hot_placeholder, nan_mask)
-  # masked_output = tf.boolean_mask(prediction, nan_mask)
-  # loss = tf.losses.softmax_cross_entropy(masked_label, masked_output);
 
   loss = tf.losses.softmax_cross_entropy(bully_one_hot_placeholder, prediction)
 
@@ -185,8 +178,7 @@ def train_main(args):
                                    name="k_acc_watch")
 
   k_acc_init = tf.variables_initializer(
-      var_list=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES,
-                                 scope="k_acc_watch"))
+      var_list=tf.get_collection(tf.GraphKeys.LOCAL_VARIABLES))
 
   train_acc_k = tf.summary.scalar("Training_K-class_Acc", k_acc_watch)
   val_acc_k = tf.summary.scalar("Validation_K-class_Acc", k_acc_watch)
