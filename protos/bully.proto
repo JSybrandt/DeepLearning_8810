@@ -117,5 +117,6 @@ message Config {
   // System config
   optional SystemConfig system          = 14;
   optional int32 seed                   = 15;
+  optional bool super_debug_mode        = 100 [default = false];
 }
 

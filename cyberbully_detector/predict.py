@@ -45,8 +45,7 @@ def predict_main(args):
     graph = tf.get_default_graph()
 
     input_placeholder = graph.get_tensor_by_name("input:0")
-    predicted_class_dist = graph.get_tensor_by_name("predicted_class_dist/Softmax:0")
-    predicted_contains_bullying = graph.get_tensor_by_name("predicted_contains_bullying/Sigmoid:0")
+    predicted_class_dist = graph.get_tensor_by_name("output/Softmax:0")
 
     img_data = [proc_img_path(args.file_path,
                              get_or_none(config, "short_side_size"),

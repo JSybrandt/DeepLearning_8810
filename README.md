@@ -40,3 +40,7 @@ https://github.com/tensorflow/models/tree/master/research/slim#Pretrained
 https://towardsdatascience.com/transfer-learning-in-tensorflow-9e4f7eae3bb4
 
 https://github.com/taehoonlee/tensornets
+
+http://ruder.io/optimizing-gradient-descent/index.html#adagrad
+
+https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
