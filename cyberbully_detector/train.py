@@ -171,7 +171,17 @@ def train_main(args):
   bully_one_hot_placeholder = Input(shape=(None, total_classes),
                             dtype=tf.float32)
 
-  loss = tf.losses.softmax_cross_entropy(bully_one_hot_placeholder, prediction)
+  # https://stackoverflow.com/questions/44560549/unbalanced-data-and-weighted-cross-entropy
+  class_weights = [1]*total_classes
+  class_weights[LB.NO_BULLYING-1] = 0.1  # make non-bullying worth 1/10
+  class_weights = tf.constant([class_weights])
+
+  weight_per_sample = tf.reduce_sum(bully_one_hot_placeholder * class_weights,
+                                    axis=1)
+  loss = tf.losses.softmax_cross_entropy(
+      bully_one_hot_placeholder,
+      prediction,
+      weights=weight_per_sample)
 
   k_acc_watch, k_acc_up = accuracy(tf.argmax(bully_one_hot_placeholder, 1),
                                    tf.argmax(prediction, 1),
