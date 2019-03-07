@@ -85,7 +85,7 @@ def str_to_transfer_model(model_str):
   assert model_str in _models
   return _models[model_str]
 
-def initialize_model(config, num_people, current_layer):
+def initialize_model(config, num_people, current_layer, is_training):
   for count, layer_conf in enumerate(config.model.layers):
     name = get_or_none(layer_conf, "name")
 
@@ -119,7 +119,7 @@ def initialize_model(config, num_people, current_layer):
       current_layer = Flatten(name=name)(current_layer)
 
     elif layer_conf.HasField("dropout"):
-      current_layer = Dropout(layer_conf.dropout.rate,
+      current_layer = Dropout(layer_conf.dropout.rate*is_training,
                               name=name)(current_layer)
     elif layer_conf.HasField("transfer"):
         if count != 0:
@@ -145,6 +145,7 @@ def train_main(args):
 
   total_classes = enum_size(LB.BullyingClass)
 
+  is_training = tf.placeholder_with_default(1.0, shape=())
   current_layer = input_placeholder = Input(
       shape=(None, # variable batch size
              config.target_size.width,
@@ -160,28 +161,29 @@ def train_main(args):
     with tf.variable_scope("transfer"):
       transfer_model = current_layer = str_to_transfer_model(
           layer_conf.name)(current_layer,
-                           is_training=True,
+                           is_training=is_training,
                            stem=True)
 
   with tf.variable_scope(TRAINING_SCOPE):
     prediction = initialize_model(config,
                                   config.max_people_per_img,
-                                  current_layer)
+                                  current_layer,
+                                  is_training)
 
   bully_one_hot_placeholder = Input(shape=(None, total_classes),
                             dtype=tf.float32)
 
   # https://stackoverflow.com/questions/44560549/unbalanced-data-and-weighted-cross-entropy
-  class_weights = [1]*total_classes
-  class_weights[LB.NO_BULLYING-1] = 0.1  # make non-bullying worth 1/10
-  class_weights = tf.constant([class_weights])
+  # class_weights = [10]*total_classes
+  # class_weights[LB.NO_BULLYING-1] = 1  # make non-bullying worth 1/100
+  # class_weights = tf.constant([class_weights], dtype=tf.float32)
 
-  weight_per_sample = tf.reduce_sum(bully_one_hot_placeholder * class_weights,
-                                    axis=1)
+  # weight_per_sample = tf.reduce_sum(bully_one_hot_placeholder * class_weights,
+                                    # axis=1)
   loss = tf.losses.softmax_cross_entropy(
       bully_one_hot_placeholder,
-      prediction,
-      weights=weight_per_sample)
+      prediction)
+#      weights=weight_per_sample)
 
   k_acc_watch, k_acc_up = accuracy(tf.argmax(bully_one_hot_placeholder, 1),
                                    tf.argmax(prediction, 1),
@@ -195,8 +197,9 @@ def train_main(args):
 
   thawed_vars = tf.trainable_variables(TRAINING_SCOPE)
 
-  optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(loss, var_list=thawed_vars)
+  #optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(loss, var_list=thawed_vars)
   #optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(loss, var_list=thawed_vars)
+  optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(loss)
   # optimizer = tf.train.MomentumOptimizer(learning_rate=0.001, momentum=0.5).minimize(loss)
   #optimizer = tf.train.AdagradOptimizer(0.01).minimize(loss)
 
@@ -204,44 +207,54 @@ def train_main(args):
 
   train_generator = ImageAndAnnotationGenerator(
       data_path=args.data,
-      data_class="TRAIN",
+      data_class="TRAIN" if args.fold is None else None,
+      folds=[i for i in range(args.num_folds) if i != args.fold] if args.fold is not None else None,
       num_people=config.max_people_per_img,
       sample_size=(config.target_size.width, config.target_size.height),
       short_side_size=get_or_none(config, "short_side_size"),
       batch_size=config.batch_size,
       datasets=args.dataset,
+      balance_classes=True,
       extra_preproc_func=None if transfer_model is None else transfer_model.preprocess
   )
   val_generator = ImageAndAnnotationGenerator(
       data_path=args.data,
-      data_class="VALIDATION",
+      data_class="VALIDATION" if args.fold is None else None,
+      folds=[args.fold] if args.fold is not None else None,
       num_people=config.max_people_per_img,
       sample_size=(config.target_size.width, config.target_size.height),
       short_side_size=get_or_none(config, "short_side_size"),
       batch_size=config.batch_size,
       datasets=args.dataset,
-      extra_preproc_func=None if transfer_model is None else transfer_model.preprocess
+      extra_preproc_func=None if transfer_model is None else transfer_model.preprocess,
+      balance_classes=False
   )
 
-  tensorboard_dir = TemporaryDirectory()
-  saver = tf.train.Saver()
 
   num_trainable_param = np.sum([np.prod(v.get_shape().as_list())
                                 for v in thawed_vars])
 
   log.info("Num trainable params: %s", num_trainable_param)
 
+  tensorboard_dir = TemporaryDirectory()
+  saver = tf.train.Saver()
+
   try:
     with tf.Session() as sess:
-      if transfer_model is not None:
-        sess.run(transfer_model.pretrained())
+      if args.resume:
+        log.info("Loading Model")
+        saver.restore(sess, tf.train.latest_checkpoint(str(args.model)))
+      else:
+        log.info("Initializing Model")
+        if transfer_model is not None:
+          sess.run(transfer_model.pretrained())
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
 
     # ACTUALLY OPTIMIZE!
       log.info("Follow along with tensorboard: " + tensorboard_dir.name)
       summary_writer = tf.summary.FileWriter(tensorboard_dir.name, sess.graph)
 
-      sess.run(tf.global_variables_initializer())
-      sess.run(tf.local_variables_initializer())
 
       # Go super fast!
       with ThreadPoolExecutor(max_workers=get_worker_count(config)) as tp_exec:
@@ -268,6 +281,8 @@ def train_main(args):
             running_acc = sess.run(k_acc_watch)
 
             if config.super_debug_mode:
+              print("Data min:", np.min(batch_data))
+              print("Data max:", np.max(batch_data))
               print("Label:", batch_bully_class)
               print("Prediction:", sess.run(prediction, feed_dict=data))
               print("Loss:", l)

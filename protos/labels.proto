@@ -109,4 +109,5 @@ message Annotation {
   optional string dataset = 5;
   optional Size image_size = 6;
   optional DataClass data_class = 7;
+  optional int32 fold = 8;
 }

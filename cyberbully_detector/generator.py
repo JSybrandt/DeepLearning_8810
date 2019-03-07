@@ -19,6 +19,7 @@ from glob import iglob
 import abc
 from tqdm import tqdm
 from . import labels_pb2 as LB
+import logging as log
 
 def _load_image(img_path):
   if img_path.is_file():
@@ -26,23 +27,29 @@ def _load_image(img_path):
   else:
     raise RuntimeError("{} is not a file!".format(img_path))
 
+
+def _resize(img, annotation, desired_w, desired_h):
+  original_w, original_h = img.size
+  img = img.resize((desired_w, desired_h), Image.ANTIALIAS)
+  w_ratio = desired_w / original_w
+  h_ratio = desired_h / original_h
+  if annotation is not None:
+    for person in annotation.people:
+      if person.HasField("location"):
+        person.location.x *= w_ratio
+        person.location.y *= h_ratio
+        person.location.width *= w_ratio
+        person.location.height *= h_ratio
+
+  return img, annotation
+
 def _resize_by_short_side(img, annotation, short_side_size):
   original_w, original_h = img.size
   min_size = min(original_w, original_h)
   rescale_ratio = short_side_size / min_size
   desired_w = max(int(original_w * rescale_ratio), short_side_size)
   desired_h = max(int(original_h * rescale_ratio), short_side_size)
-  img = img.resize((desired_w, desired_h), Image.ANTIALIAS)
-
-  if annotation is not None:
-    for person in annotation.people:
-      if person.HasField("location"):
-        person.location.x *= rescale_ratio
-        person.location.y *= rescale_ratio
-        person.location.width *= rescale_ratio
-        person.location.height *= rescale_ratio
-
-  return img, annotation
+  return _resize(img, annotation, desired_w, desired_h)
 
 def _crop_rand_sample(img, annotation, sample_size):
   assert sample_size[0] <= img.size[0]
@@ -128,8 +135,9 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
 
   img = _load_image(img_path)
 
-  img, annotation = _resize_by_short_side(img, annotation, short_side_size)
-  img, annotation = _crop_rand_sample(img, annotation, sample_size)
+  #img, annotation = _resize_by_short_side(img, annotation, short_side_size)
+  img, annotation = _resize(img, annotation, sample_size[0], sample_size[0])
+  #img, annotation = _crop_rand_sample(img, annotation, sample_size)
 
   if random.random() < 0.5:
     img, annotation = _horizontal_flip(img, annotation)
@@ -143,18 +151,25 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
   contains_bullying = 0 if annotation.bullying_class == LB.NO_BULLYING else 1
   return arr, vector, contains_bullying
 
-def proc_img_path(path, short_side_size, sample_size, callbacks=[], flips=False):
+def proc_img_path(path, short_side_size, sample_size, callbacks=[], flips=False, force_horizontal_flip=False, force_vertical_flip=False):
   if short_side_size is None:
     short_side_size = max(sample_size)
   assert short_side_size >= max(sample_size)
   img = _load_image(path)
-  img, _ = _resize_by_short_side(img, None, short_side_size)
-  img, _ = _crop_rand_sample(img, None, sample_size)
+  #img, _ = _resize_by_short_side(img, None, short_side_size)
+  img, annotation = _resize(img, None, sample_size[0], sample_size[0])
+  #img, _ = _crop_rand_sample(img, None, sample_size)
   if flips:
     if random.random() < 0.5:
       img, _ = _horizontal_flip(img, None)
     if random.random() < 0.5:
       img, _ = _vertical_flip(img, None)
+  else:
+    if force_horizontal_flip:
+      img, _ = _horizontal_flip(img, None)
+    if force_vertical_flip:
+      img, _ = _vertical_flip(img, None)
+
   for callback in callbacks:
     callback(path, img)
   arr = np.array(img, dtype=np.float32)
@@ -184,16 +199,17 @@ class Sequence(metaclass=abc.ABCMeta):
 
 class ImageAndAnnotationGenerator(Sequence):
   def __init__(self,
-               data_path,
-               data_class,
                num_people,
                sample_size,
                batch_size,
+               data_class=None,
+               folds=None,  # Array of folds #'s
+               data_path=None,
                short_side_size=None,
                datasets=None,
                seed=None,
-               extra_preproc_func=None):
-
+               extra_preproc_func=None,
+               balance_classes=True):
     db = get_annotation_db_connection()
     self.db = db
     data_path = Path(data_path)
@@ -208,7 +224,23 @@ class ImageAndAnnotationGenerator(Sequence):
     if seed is not None:
       random.seed(seed)
 
-    self.ids = get_annotation_ids(db, data_class, datasets)
+    self.ids = get_annotation_ids(db, data_class, datasets, folds)
+    if balance_classes:
+      log.info("Loading annotation classes for balancing.")
+      self.class2ids = {}
+      for _id in self.ids:
+        annotation = load_annotation(self.db, _id)
+        c = annotation.bullying_class
+        if c in self.class2ids:
+          self.class2ids[c].append(_id)
+        else:
+          self.class2ids[c] = [_id]
+    else:
+      # Put them all in one class
+      self.class2ids = {-1: self.ids}
+    self.classes = list(self.class2ids.keys())
+    self.folds=folds
+    self.balance_classes=balance_classes
     self.data_path = data_path
     self.num_people = num_people
     self.sample_size = sample_size
@@ -219,24 +251,29 @@ class ImageAndAnnotationGenerator(Sequence):
 
   def __len__(self):
     # Number of batches
-    return int(np.ceil(len(self.ids)/self.batch_size))
+    # Largest class
+    max_ids = max([len(i) for _, i in self.class2ids.items()])
+    # div across classes (remember, only 1 class if not balance classes)
+    batch_per_ds = self.batch_size / len(self.class2ids)
+    # number of batches
+    return int(np.ceil(max_ids/batch_per_ds))
 
   def on_epoch_end(self):
-    random.shuffle(self.ids)
+    for _, ids in self.class2ids.items():
+      random.shuffle(ids)
 
   def __getitem__(self, batch_idx):
-    start_idx = batch_idx * self.batch_size
-    end_idx = min(len(self.ids), start_idx + self.batch_size)
+    data = np.empty((self.batch_size, self.sample_size[0], self.sample_size[1], 3))
+    bully_class = np.empty((self.batch_size, annotation_size(self.num_people)))
+    contains_bullying = np.empty((self.batch_size, 1))
 
-    this_batch_size = end_idx - start_idx
-    data = np.empty((this_batch_size, self.sample_size[0], self.sample_size[1], 3))
-    bully_class = np.empty((this_batch_size, annotation_size(self.num_people)))
-    contains_bullying = np.empty((this_batch_size, 1))
-    for i in range(this_batch_size):
-      idx = start_idx + i
+    for i in range(self.batch_size):
+      class_idx = random.choice(self.classes)
+      annotation_id = random.choice(self.class2ids[class_idx])
+
       data[i,:,:,:], bully_class[i, :], contains_bullying[i, :] = _process_id(
           self.db,
-          self.ids[idx],
+          annotation_id,
           self.data_path,
           self.sample_size,
           self.short_side_size,

@@ -103,6 +103,42 @@ def parse_args():
       help="If set, only use specific dataset images for training.",
       nargs="*")
 
+  train_parser.add_argument(
+      "--resume", action="store_true",
+      help="If set, load and continue training model")
+
+  train_parser.add_argument(
+      "--fold", type=int,
+      help="Which fold to hold out. If set, ignores dataclass labels.")
+  checks.append(ArgumentCheck(
+    command="train",
+    param_name="fold",
+    assert_fn=lambda a: a.fold is None or a.fold >= 0,
+    err_msg="If supplied, fold must be non-negative."
+  ))
+  checks.append(ArgumentCheck(
+    command="train",
+    param_name="fold",
+    assert_fn=lambda a: (a.fold is None) == (a.num_folds is None),
+    err_msg="If fold is supplied. num_folds must also be supplied."
+  ))
+
+  train_parser.add_argument(
+      "--num_folds", type=int,
+      help="Which fold to hold out. If set, ignores dataclass labels.")
+  checks.append(ArgumentCheck(
+    command="train",
+    param_name="num_folds",
+    assert_fn=lambda a: a.num_folds is None or a.num_folds >= 0,
+    err_msg="If supplied, num_folds must be non-negative."
+  ))
+  checks.append(ArgumentCheck(
+    command="train",
+    param_name="num_folds",
+    assert_fn=lambda a: a.fold is None or a.num_folds > a.fold,
+    err_msg="Max fold must be larger than fold."
+  ))
+
   ## Evaluation / Arguments ###################################################
   ## Prediction / Arguments ###################################################
 
@@ -138,6 +174,14 @@ def parse_args():
     param_name="file_path",
     assert_fn=lambda a: a.file_path.is_file(),
     err_msg="Must supply valid path."
+  ))
+
+  predict_parser.add_argument("--sup_model", type=Path, nargs="*")
+  checks.append(ArgumentCheck(
+    command="predict",
+    param_name="sup_model",
+    assert_fn=lambda a: sum(p.is_dir() for p in a.sup_model) == len(a.sup_model),
+    err_msg="Must supply valid paths for supplemental models."
   ))
 
 

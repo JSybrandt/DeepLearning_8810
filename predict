@@ -1,0 +1,14 @@
+#!/bin/bash
+
+img=$1
+
+if [[ ! -f "$img" ]]; then
+  echo "Must supply image file as $1"
+  exit 1
+fi
+
+python3 -m cyberbully_detector \
+  ./configs/midterm.config ./models/fold_0 \
+  predict \
+  $img \
+  --sup_model ./models/fold_1 ./models/fold_2 \

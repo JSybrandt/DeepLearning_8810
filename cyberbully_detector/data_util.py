@@ -9,23 +9,32 @@ import multiprocessing
 from pymongo import MongoClient
 from google.protobuf.json_format import Parse as json2proto
 import json
+import logging as log
 
 
 def get_annotation_db_connection(host="jcloud", db_name="DL_8810"):
   return MongoClient(host)[db_name]
 
-def get_annotation_ids(db, data_class, datasets=None):
+def get_annotation_ids(db, data_class=None, datasets=None, folds=None):
   "If datasets is a string, we will only return annotations from that set "
   "matching the class"
   if type(data_class) == int:
     data_class == DataClass.Name(data_class)
 
-  query = {"dataClass": data_class}
+  query = {"$and":[]}
+  if data_class is not None:
+    query["dataClass"] = data_class
+
   if datasets is not None:
     if type(datasets) == str:
       query["dataset"] = datasets
     else:
-      query["$or"] = [{"dataset": ds} for ds in datasets]
+      query["$and"].append({"$or": [{"dataset": ds} for ds in datasets]})
+
+  if folds is not None:
+    query["$and"].append({"$or": [{"fold": f} for f in folds]})
+
+  log.info(query)
 
   res = []
   for query_res in db.annotations.find(query, {"_id":1}):

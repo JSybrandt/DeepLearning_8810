@@ -33,63 +33,65 @@ def bully_enum_to_str(bully_enum_val):
 def predict_main(args):
 
   config = get_config(args)
+  img_data = [
+      proc_img_path(args.file_path,
+                    get_or_none(config, "short_side_size"),
+                    (config.target_size.width, config.target_size.height),
+                    flips=False,
+                    force_horizontal_flip=False,
+                    force_vertical_flip=False),
+      proc_img_path(args.file_path,
+                    get_or_none(config, "short_side_size"),
+                    (config.target_size.width, config.target_size.height),
+                    flips=False,
+                    force_horizontal_flip=True,
+                    force_vertical_flip=False),
+      proc_img_path(args.file_path,
+                    get_or_none(config, "short_side_size"),
+                    (config.target_size.width, config.target_size.height),
+                    flips=False,
+                    force_horizontal_flip=False,
+                    force_vertical_flip=True),
+      proc_img_path(args.file_path,
+                    get_or_none(config, "short_side_size"),
+                    (config.target_size.width, config.target_size.height),
+                    flips=False,
+                    force_horizontal_flip=True,
+                    force_vertical_flip=True),
+  ]
 
-  log.info("Checking %s is readable", args.model)
-  meta_file = list(args.model.glob("*.meta"))[0]
-  assert meta_file.is_file()
+  predictions = []
 
-  with tf.Session() as sess:
-    new_saver = tf.train.import_meta_graph(str(meta_file))
-    new_saver.restore(sess, tf.train.latest_checkpoint(str(args.model)))
+  models = [args.model] + args.sup_model
+  for model_dir in models:
 
-    graph = tf.get_default_graph()
+    meta_file = list(model_dir.glob("*.meta"))[0]
+    assert meta_file.is_file()
 
-    input_placeholder = graph.get_tensor_by_name("input:0")
-    predicted_class_dist = graph.get_tensor_by_name("training_vars/output/Softmax:0")
+    with tf.Session() as sess:
+      new_saver = tf.train.import_meta_graph(str(meta_file))
+      new_saver.restore(sess, tf.train.latest_checkpoint(str(model_dir)))
 
-    img_data = [proc_img_path(args.file_path,
-                             get_or_none(config, "short_side_size"),
-                             (config.target_size.width, config.target_size.height))]
-    data = {input_placeholder: img_data}
-    prediction = sess.run(predicted_class_dist, feed_dict=data)
-    log.info(prediction)
+      graph = tf.get_default_graph()
 
-    print(bully_enum_to_str(np.argmax(prediction)+1))
-
-  # log.info("Loading")
-  # model = load_model(str(args.model), custom_objects={"mse_nan": mse_nan})
-
-  # path_to_fragment = {}
-  # def add_frag_callback(path, img):
-    # path_to_fragment[path] = img
-
-  # generator = FileSystemImageGenerator(
-      # args.data,
-      # sample_size=(config.target_size.width, config.target_size.height),
-      # short_side_size=get_or_none(config, "short_side_size"),
-      # batch_size=config.batch_size,
-      # img_callbacks=[add_frag_callback])
+      input_placeholder = graph.get_tensor_by_name("input:0")
+      predicted_class_dist = graph.get_tensor_by_name("trainable_vars/output/Softmax:0")
+      is_training = graph.get_tensor_by_name("PlaceholderWithDefault/input:0")
 
 
-  # # Need workers=1 in order to keep order
-  # predictions = model.predict_generator(
-      # generator,
-      # #  workers=get_worker_count(config)
-      # )
+      data = {input_placeholder: img_data, is_training:0}
+      batch = sess.run(predicted_class_dist, feed_dict=data)
+      # Normalize prediction by batch
+      prediction = np.sum(batch, axis=0) / batch.shape[0]
+      # log.info(prediction)
+      predictions.append(prediction)
+      log.info("Model %s beleives its %s",
+               model_dir.name,
+               bully_enum_to_str(np.argmax(prediction)+1))
 
-  # for prediction_vec, file_path in zip(predictions, generator.get_files()):
-    # annotation = vector_to_annotation(prediction_vec)
-    # print(file_path, annotation)
-    # if args.out_dir is not None:
-      # if args.write_annotations:
-        # annotation_path = args.out_dir.joinpath(file_path.stem + ".annotation")
-        # with open(annotation_path, "rb") as file:
-          # file.write(annotation_path.SerializeToString())
-      # if args.write_images:
-        # img_path  = args.out_dir.joinpath(file_path.stem + ".jpg")
-        # img = path_to_fragment[file_path]
-        # unscale_people(img, annotation)
-        # img = draw_boxes_on_image(img, annotation)
-        # img.save(str(img_path))
+  log.info("Global")
+  prediction = np.sum(predictions, axis=0)
+  log.info(prediction)
+  print(bully_enum_to_str(np.argmax(prediction)+1))
 
   return 0 # Exit Code
