@@ -14,13 +14,33 @@ pre-trained models uploaded to google drive. Inside this directory should be a
 number of sub-folders. My prediction is going to leverage all of these
 sub-models, so make sure its all in the right place.
 
-Then, make sure the dependencies are setup. This should be as easy as
-`./install.sh` Note that I built these models using tensorflow 1.12.0. The other
-listed dependencies are mostly used to coordinate training, however they will be
+The correct file hierarchy is as follows:
+
+```
+DeepLearning_8810/
+  predict
+  cyberbully_detector/
+    ...
+  configs/
+    ...
+  models/
+    fold_0/
+      ...
+    fold_1/
+      ...
+    fold_2/
+      ...
+```
+
+Then, make sure the dependencies are setup. This should be as easy as :
+```pip install -U -r requirements.txt```
+
+Note that I built these models using tensorflow 1.12.0. The other listed
+dependencies are mostly used to coordinate training, however they will be
 necessary to launch the module. `protoc` is only needed to build the protocol
 buffers needed for training.
 
-Finally, calling `./predict <img_path>` should be all you need to do!
+Finally, calling *`./predict <img_path>`* should be all you need to do!
 
 ## Model summary
 
@@ -66,7 +86,7 @@ this code currently. Also, the generator class is also thread-safe, which allows
 me to run parallel batch generation in `train.py`.
 
 
-# Sources
+# Technical Sources
 
 https://kwotsin.github.io/tech/2017/02/11/transfer-learning.html
 
@@ -79,3 +99,5 @@ https://github.com/taehoonlee/tensornets
 http://ruder.io/optimizing-gradient-descent/index.html#adagrad
 
 https://machinelearningmastery.com/adam-optimization-algorithm-for-deep-learning/
+
+
