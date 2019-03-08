@@ -168,11 +168,12 @@ def parse_args():
     err_msg="If --write_images is set, --out_dir must also be set"
   ))
 
-  predict_parser.add_argument("file_path", type=Path)
+  predict_parser.add_argument("file_path", type=Path, nargs="+")
   checks.append(ArgumentCheck(
     command="predict",
     param_name="file_path",
-    assert_fn=lambda a: a.file_path.is_file(),
+    assert_fn=lambda a: (sum([p.is_file() for p in a.file_path]) \
+                         == len(a.file_path)),
     err_msg="Must supply valid path."
   ))
 
@@ -180,8 +181,20 @@ def parse_args():
   checks.append(ArgumentCheck(
     command="predict",
     param_name="sup_model",
-    assert_fn=lambda a: sum(p.is_dir() for p in a.sup_model) == len(a.sup_model),
+    assert_fn=lambda a: (a.sup_model is None or \
+                         sum([p.is_dir() for p in a.sup_model]) \
+                         == len(a.sup_model)),
     err_msg="Must supply valid paths for supplemental models."
+  ))
+
+  predict_parser.add_argument("--last_ditch_model", type=Path, nargs="*")
+  checks.append(ArgumentCheck(
+    command="predict",
+    param_name="last_ditch_model",
+    assert_fn=lambda a: (a.last_ditch_model is None or \
+                         sum([p.is_dir() for p in a.last_ditch_model]) \
+                         == len(a.last_ditch_model)),
+    err_msg="Must supply valid paths for last-ditch models."
   ))
 
 

@@ -1,4 +1,4 @@
-syntax = "proto2";
+sntax = "proto2";
 
 package cyberbully_detector;
 

@@ -135,9 +135,12 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
 
   img = _load_image(img_path)
 
-  #img, annotation = _resize_by_short_side(img, annotation, short_side_size)
-  img, annotation = _resize(img, annotation, sample_size[0], sample_size[0])
-  #img, annotation = _crop_rand_sample(img, annotation, sample_size)
+  if short_side_size is None:
+    img, annotation = _resize(img, annotation, sample_size[0], sample_size[0])
+  else:
+    assert short_side_size >= max(sample_size)
+    img, annotation = _resize_by_short_side(img, annotation, short_side_size)
+    img, annotation = _crop_rand_sample(img, annotation, sample_size)
 
   if random.random() < 0.5:
     img, annotation = _horizontal_flip(img, annotation)
@@ -152,13 +155,15 @@ def _process_id(db, mongo_id, data_path, sample_size, short_side_size, num_peopl
   return arr, vector, contains_bullying
 
 def proc_img_path(path, short_side_size, sample_size, callbacks=[], flips=False, force_horizontal_flip=False, force_vertical_flip=False):
-  if short_side_size is None:
-    short_side_size = max(sample_size)
-  assert short_side_size >= max(sample_size)
   img = _load_image(path)
-  #img, _ = _resize_by_short_side(img, None, short_side_size)
-  img, annotation = _resize(img, None, sample_size[0], sample_size[0])
-  #img, _ = _crop_rand_sample(img, None, sample_size)
+
+  if short_side_size is None:
+    img, _ = _resize(img, None, sample_size[0], sample_size[0])
+  else:
+    assert short_side_size >= max(sample_size)
+    img, _ = _resize_by_short_side(img, None, short_side_size)
+    img, _ = _crop_rand_sample(img, None, sample_size)
+
   if flips:
     if random.random() < 0.5:
       img, _ = _horizontal_flip(img, None)
