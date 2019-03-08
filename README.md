@@ -34,12 +34,6 @@ DeepLearning_8810/
 
 Then, make sure the dependencies are setup. This should be as easy as :
 ```pip install -U -r requirements.txt```
-
-Note that I built these models using tensorflow 1.12.0. The other listed
-dependencies are mostly used to coordinate training, however they will be
-necessary to launch the module. `protoc` is only needed to build the protocol
-buffers needed for training.
-
 Finally, calling *`./predict <img_path>`* should be all you need to do!
 
 ## Model summary
