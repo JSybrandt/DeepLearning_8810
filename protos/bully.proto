@@ -62,6 +62,7 @@ message ModelDescription {
       PoolLayer pool           = 6;
     }
     optional string name       = 100;
+    optional string scope      = 101;
   }
   repeated Layer layers              = 1;
   optional OptimizerConfig optimizer = 2;

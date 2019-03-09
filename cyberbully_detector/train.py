@@ -17,6 +17,9 @@ from tensorflow import placeholder as Input
 from tensorflow import concat as Concatenate
 from tensorflow.layers import Dense
 from tensorflow.layers import Conv2D
+from tensorflow.contrib.layers import conv2d
+from tensorflow.nn import relu
+
 from tensorflow.layers import MaxPooling2D
 from tensorflow.layers import Dropout
 from tensorflow.layers import Flatten
@@ -31,9 +34,6 @@ from concurrent.futures import as_completed
 from tempfile import TemporaryDirectory
 import tensornets as nets
 
-TRAINING_SCOPE="trainable_vars"
-
-
 def str_to_activation(activation_str):
   _activations = {
       "sigmoid": tf.nn.sigmoid,
@@ -45,6 +45,8 @@ def str_to_activation(activation_str):
   return _activations[activation_str]
 
 def str_to_transfer_model(model_str):
+  # USED TO PREP IDEAS
+  # NOT USED IN FINAL PROJECT
   _models = {
       "resnet50"        : nets.ResNet50,
       "resnet101"       : nets.ResNet101,
@@ -88,45 +90,44 @@ def str_to_transfer_model(model_str):
 def initialize_model(config, num_people, current_layer, is_training):
   for count, layer_conf in enumerate(config.model.layers):
     name = get_or_none(layer_conf, "name")
+    with tf.variable_scope(layer_conf.scope, reuse=tf.AUTO_REUSE):
+      if layer_conf.HasField("convolutional"):
+        current_layer = relu(conv2d(
+            current_layer,
+            layer_conf.convolutional.filters,
+            max(layer_conf.convolutional.kernel_size.width,
+                layer_conf.convolutional.kernel_size.height),
+            #data_format='channels_last',
+            padding="same",
+            scope="conv"))
 
-    if layer_conf.HasField("convolutional"):
-      current_layer = Conv2D(
-          layer_conf.convolutional.filters,
-          (layer_conf.convolutional.kernel_size.width,
-           layer_conf.convolutional.kernel_size.height),
-          name=name,
-          data_format="channels_first"
-      )(current_layer)
+      elif layer_conf.HasField("pool"):
+        if layer_conf.pool.type == "max":
+          current_layer = MaxPooling2D(
+              (layer_conf.pool.size.width, layer_conf.pool.size.height),
+              strides=(layer_conf.pool.size.width, layer_conf.pool.size.height),
+              name=name)(current_layer)
+        else:
+          raise ValueError("Unsupported pool type:" + conv_config.pool_type)
 
-    elif layer_conf.HasField("pool"):
-      if layer_conf.pool.type == "max":
-        current_layer = MaxPooling2D(
-            (layer_conf.pool.size.width, layer_conf.pool.size.height),
-            strides=(layer_conf.pool.size.width, layer_conf.pool.size.height),
-            name=name
-        )(current_layer)
+      elif layer_conf.HasField("dense"):
+        current_layer = Dense(
+            layer_conf.dense.units,
+            activation=str_to_activation(layer_conf.dense.activation),
+            name=name)(current_layer)
+
+      elif layer_conf.HasField("flatten"):
+        current_layer = Flatten(name=name)(current_layer)
+
+      elif layer_conf.HasField("dropout"):
+        current_layer = Dropout(layer_conf.dropout.rate*is_training,
+                                name=name)(current_layer)
+      elif layer_conf.HasField("transfer"):
+          if count != 0:
+            ValueError("Transfer layer must occur first.")
+            # We're handling this outside now
       else:
-        raise ValueError("Unsupported pool type:" + conv_config.pool_type)
-
-    elif layer_conf.HasField("dense"):
-      current_layer = Dense(
-          layer_conf.dense.units,
-          activation=str_to_activation(layer_conf.dense.activation),
-          name=name
-          )(current_layer)
-
-    elif layer_conf.HasField("flatten"):
-      current_layer = Flatten(name=name)(current_layer)
-
-    elif layer_conf.HasField("dropout"):
-      current_layer = Dropout(layer_conf.dropout.rate*is_training,
-                              name=name)(current_layer)
-    elif layer_conf.HasField("transfer"):
-        if count != 0:
-          ValueError("Transfer layer must occur first.")
-          # We're handling this outside now
-    else:
-      ValueError("Unsupported layer.")
+        ValueError("Unsupported layer.")
 
   return current_layer
 
@@ -154,8 +155,7 @@ def train_main(args):
       name="input",
       dtype=tf.float32)
 
-  log.info("Creating a new model")
-
+  transfer_model = None
   if config.model.layers[0].HasField("transfer"):
     layer_conf = config.model.layers[0]
     with tf.variable_scope("transfer"):
@@ -164,26 +164,17 @@ def train_main(args):
                            is_training=is_training,
                            stem=True)
 
-  with tf.variable_scope(TRAINING_SCOPE):
-    prediction = initialize_model(config,
-                                  config.max_people_per_img,
-                                  current_layer,
-                                  is_training)
+  prediction = initialize_model(config,
+                                config.max_people_per_img,
+                                current_layer,
+                                is_training)
 
   bully_one_hot_placeholder = Input(shape=(None, total_classes),
-                            dtype=tf.float32)
+                                    dtype=tf.float32)
 
-  # https://stackoverflow.com/questions/44560549/unbalanced-data-and-weighted-cross-entropy
-  # class_weights = [10]*total_classes
-  # class_weights[LB.NO_BULLYING-1] = 1  # make non-bullying worth 1/100
-  # class_weights = tf.constant([class_weights], dtype=tf.float32)
-
-  # weight_per_sample = tf.reduce_sum(bully_one_hot_placeholder * class_weights,
-                                    # axis=1)
   loss = tf.losses.softmax_cross_entropy(
       bully_one_hot_placeholder,
       prediction)
-#      weights=weight_per_sample)
 
   k_acc_watch, k_acc_up = accuracy(tf.argmax(bully_one_hot_placeholder, 1),
                                    tf.argmax(prediction, 1),
@@ -195,13 +186,7 @@ def train_main(args):
   train_acc_k = tf.summary.scalar("Training_K-class_Acc", k_acc_watch)
   val_acc_k = tf.summary.scalar("Validation_K-class_Acc", k_acc_watch)
 
-  thawed_vars = tf.trainable_variables(TRAINING_SCOPE)
-
-  #optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(loss, var_list=thawed_vars)
-  #optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(loss, var_list=thawed_vars)
   optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.001).minimize(loss)
-  # optimizer = tf.train.MomentumOptimizer(learning_rate=0.001, momentum=0.5).minimize(loss)
-  #optimizer = tf.train.AdagradOptimizer(0.01).minimize(loss)
 
   # BELOW IS THE ACTUAL RUNNING
 
@@ -229,12 +214,6 @@ def train_main(args):
       extra_preproc_func=None if transfer_model is None else transfer_model.preprocess,
       balance_classes=False
   )
-
-
-  num_trainable_param = np.sum([np.prod(v.get_shape().as_list())
-                                for v in thawed_vars])
-
-  log.info("Num trainable params: %s", num_trainable_param)
 
   tensorboard_dir = TemporaryDirectory()
   saver = tf.train.Saver()
